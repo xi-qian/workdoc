@@ -44,81 +44,137 @@
 ### 2.1 系统全景
 
 ```mermaid
-flowchart TD
-    DT[钉钉]
-    FS[飞书]
-    WW[企业微信]
+flowchart TB
 
-    GW_IN[Platform Adapters] --> UMF[统一消息格式] --> ROUTER[Router<br/>按 group_id 路由]
-    ROUTER --> IM_MGR[Instance Manager<br/>自治创建/回收]
-    IM_MGR --> RESP[Response Handler]
+%% ========== Layer 1 ==========
+subgraph L1["① IM 平台层"]
+direction LR
+DT[钉钉]
+FS[飞书]
+WW[企业微信]
+end
 
-    PA[个人 Agent]
-    EA1[Group A 实例]
-    EA2[Group B 实例]
-    EAN[Group N 实例]
 
-    IN2[入口] --> AUTH[Consumer Token 鉴权]
-    AUTH --> LLM_R[LLM Router]
-    AUTH --> MCP_R[MCP Router]
-    LLM_R --> QUOTA[Quota &amp; Audit]
-    MCP_R --> QUOTA
+%% ========== Layer 2 ==========
+subgraph L2["② Agent 运行层"]
+direction TB
 
-    LLM1[国产模型]
-    LLM2[OpenAI]
-    MCPS[MCP Servers]
+subgraph PERSONAL["个人 Agent"]
+PA[Personal Agent]
+end
 
-    MgmtAPI[REST API Server]
-    MgmtGit[Git（Gitea）]
-    PG[(PostgreSQL)]
-    MINIO[(MinIO / S3)]
+subgraph ENTERPRISE["企业 Agent Runtime"]
+direction TB
 
-    DT -->|Webhook| GW_IN
-    FS -->|Event| GW_IN
-    WW -->|Callback| GW_IN
-    PA ---|直连| DT
-    PA ---|直连| FS
-    PA ---|直连| WW
-    IM_MGR -.-> EA1 & EA2 & EAN
-    RESP -.- DT & FS & WW
-    PA & EA1 & EA2 & EAN -->|Consumer Token| IN2
-    LLM_R --> LLM1 & LLM2
-    MCP_R --> MCPS
+GW[Platform Adapters]
 
-    MgmtAPI --> PG & MINIO
-    MgmtGit -->|资源版本管理| MINIO
-    MgmtAPI -.->|配置策略 / 监控| ROUTER
-    MgmtAPI -.->|配置策略 / 监控| IN2
+UMF[Unified Message Format]
 
-    subgraph layer1["① 消息层：IM 平台"]
-        direction LR
-        DT & FS & WW
-    end
-    subgraph layer2["② Agent 运行层"]
-        subgraph pa_box["个人 Agent"]
-            direction LR
-            PA
-        end
-        subgraph ea_box["企业 Agent = Message Gateway + Group 实例"]
-            direction LR
-            GW_IN & UMF & ROUTER & IM_MGR & RESP & EA1 & EA2 & EAN
-        end
-    end
-    subgraph layer3["③ AI 网关"]
-        direction TB
-        IN2 & AUTH & LLM_R & MCP_R & QUOTA
-    end
-    subgraph layer4["④ 管理平台：Management Platform"]
-        direction LR
-        MgmtAPI & MgmtGit & PG & MINIO
-    end
-    subgraph layer5["⑤ 外部服务"]
-        direction LR
-        LLM1 & LLM2 & MCPS
-    end
+ROUTER[Router<br/>group_id 路由]
 
-    style pa_box fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#78350f
-    style ea_box fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e3a5f
+IMGR[Instance Manager<br/>实例生命周期管理]
+
+RESP[Response Handler]
+
+EA1[Group Agent A]
+EA2[Group Agent B]
+EAN[Group Agent N]
+
+GW --> UMF --> ROUTER --> IMGR
+IMGR --> EA1
+IMGR --> EA2
+IMGR --> EAN
+
+end
+
+end
+
+
+%% ========== Layer 3 ==========
+subgraph L3["③ AI Gateway"]
+direction TB
+
+IN[AI Gateway Entry]
+
+AUTH[Consumer Token<br/>Authentication]
+
+LLMR[LLM Router]
+
+MCPR[MCP Router]
+
+QUOTA[Quota / Audit / Cost Control]
+
+IN --> AUTH
+AUTH --> LLMR
+AUTH --> MCPR
+LLMR --> QUOTA
+MCPR --> QUOTA
+
+end
+
+
+%% ========== Layer 4 ==========
+subgraph L4["④ 管理平台 (Control Plane)"]
+direction LR
+
+API[Management API]
+
+GIT[Git / Gitea<br/>配置与版本]
+
+PG[(PostgreSQL)]
+
+OBJ[(MinIO / S3)]
+
+API --> PG
+API --> OBJ
+GIT --> OBJ
+
+end
+
+
+%% ========== Layer 5 ==========
+subgraph L5["⑤ 外部 AI 服务"]
+direction LR
+
+LLM1[国产模型]
+
+LLM2[OpenAI / Frontier Models]
+
+MCP[MCP Tool Servers]
+
+end
+
+
+%% ========== Connections ==========
+
+DT --> GW
+FS --> GW
+WW --> GW
+
+PA --> IN
+EA1 --> IN
+EA2 --> IN
+EAN --> IN
+
+LLMR --> LLM1
+LLMR --> LLM2
+
+MCPR --> MCP
+
+API -.配置策略.-> ROUTER
+API -.监控配置.-> IN
+
+
+%% ========== Styles ==========
+
+style L1 fill:#f3f4f6,stroke:#9ca3af
+style L2 fill:#eef2ff,stroke:#6366f1
+style L3 fill:#ecfeff,stroke:#06b6d4
+style L4 fill:#f0fdf4,stroke:#22c55e
+style L5 fill:#fff7ed,stroke:#f97316
+
+style PERSONAL fill:#fef3c7,stroke:#f59e0b
+style ENTERPRISE fill:#dbeafe,stroke:#3b82f6
 ```
 
 ### 2.2 子系统职责
