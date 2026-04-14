@@ -648,7 +648,144 @@ sequenceDiagram
     AIGW-->>Agent: 回传结果
 ```
 
-### 5.5 参考实现
+### 5.5 企业工具调用鉴权
+
+Agent 调用企业内部 MCP 工具（如查询内部数据库、创建工单、操作 OA 系统等）时，需要携带原始消息发送者的身份信息，由 AI Gateway 或 MCP Server 进行企业身份鉴权。
+
+**核心思路**：消息发送者的身份从 IM 平台经过 Message Gateway → Agent → AI Gateway 全链路透传，在工具调用时用于权限验证。
+
+#### 5.5.1 身份透传机制
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant IM as IM 平台
+    participant GW as Message Gateway
+    participant Agent as Group Agent 实例
+    participant AIGW as AI Gateway
+    participant MCP as 企业 MCP Server
+    participant Auth as 企业鉴权系统
+
+    U->>IM: 发送消息
+    IM->>GW: 消息事件（含 sender_id, sender_name）
+    GW->>Agent: 转发消息 + 注入 sender_identity
+
+    Note over Agent: Agent 调用企业内部工具时，<br/>自动携带 sender_identity
+
+    Agent->>AIGW: MCP 请求<br/>tools/call {<br/>  name: "create_ticket",<br/>  args: {...},<br/>  sender_identity: { user_id, name }<br/>}
+
+    AIGW->>AIGW: 1. 验证 Consumer Token
+    AIGW->>AIGW: 2. 提取 sender_identity
+
+    alt 需要企业鉴权的工具
+        AIGW->>Auth: 3. 用 user_id 查询企业权限
+        alt 权限通过
+            AIGW->>MCP: 转发请求（携带 sender_identity）
+            MCP-->>AIGW: 返回结果
+        else 权限拒绝
+            AIGW-->>Agent: 返回错误: PERMISSION_DENIED
+        end
+    else 不需要企业鉴权的工具
+        AIGW->>MCP: 直接转发请求
+        MCP-->>AIGW: 返回结果
+    end
+
+    AIGW-->>Agent: 回传结果
+    Agent-->>GW: 回复用户
+```
+
+#### 5.5.2 sender_identity 结构
+
+```typescript
+interface SenderIdentity {
+  platform: "dingtalk" | "feishu" | "wework";
+  user_id: string;          // IM 平台的用户 ID
+  user_name: string;        // IM 平台的显示名
+  group_id: string;         // 来源群组 ID
+  message_id: string;       // 原始消息 ID（审计追溯）
+  timestamp: number;        // 消息时间戳
+}
+```
+
+#### 5.5.3 透传路径
+
+```
+IM 平台消息事件
+  │  sender_id, sender_name
+  ▼
+Message Gateway → 归一化为 UniformMessage → 注入 SenderIdentity
+  │
+  ▼
+Group Agent 实例 → Agent SDK 持有当前对话的 SenderIdentity
+  │  Agent 在调用 MCP 工具时自动注入（程序行为，Agent 无感知）
+  ▼
+AI Gateway (MCP Router) → 从请求中提取 SenderIdentity → 查询企业鉴权系统
+  │
+  ▼
+企业 MCP Server → 执行工具操作
+```
+
+**关键设计：**
+- `SenderIdentity` 由 Message Gateway 从 IM 消息中提取，Agent 不可篡改
+- 注入是程序行为（类似 nanoclaw 的 `sourceRequestId` 注入），Agent 不需要知道该字段的存在
+- 鉴权在 AI Gateway 层统一执行，MCP Server 不需要各自实现鉴权逻辑
+
+#### 5.5.4 企业鉴权配置
+
+```yaml
+# AI Gateway 企业鉴权配置
+enterprise_auth:
+  enabled: true
+  # 鉴权方式
+  provider: "feishu"          # feishu / dingtalk / wework / custom
+  # 鉴权服务地址（custom 类型时使用）
+  auth_endpoint: "${ENTERPRISE_AUTH_URL}"
+  # 需要鉴权的工具列表（未列出的工具直接放行）
+  protected_tools:
+    - server: "internal-oa"
+      tools: ["create_ticket", "approve_request", "query_salary"]
+    - server: "internal-db"
+      tools: ["write", "delete"]
+  # 不需要鉴权的工具（公开工具，如搜索）
+  public_tools:
+    - server: "web-search"
+      tools: ["*"]
+    - server: "knowledge-base"
+      tools: ["query"]
+  # 鉴权缓存（减少查询频率）
+  cache_ttl: 300              # 秒
+```
+
+#### 5.5.5 错误处理
+
+鉴权失败时，AI Gateway 返回结构化错误，Agent 可根据错误类型决定如何回复用户：
+
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "[工具调用被拒绝] 用户 张三 没有权限执行 create_ticket 操作"
+    }
+  ],
+  "is_error": true,
+  "error": {
+    "type": "PERMISSION_DENIED",
+    "sender": "张三",
+    "tool": "create_ticket",
+    "reason": "用户不在审批人列表中"
+  }
+}
+```
+
+#### 5.5.6 安全考虑
+
+1. **身份不可伪造**：`SenderIdentity` 由 Message Gateway 从 IM 平台 SDK 事件中提取，Agent 无法修改
+2. **最小鉴权**：只在 `protected_tools` 列表中的工具触发鉴权，公开工具直接放行
+3. **鉴权缓存**：同一用户的权限查询结果缓存，减少对企业鉴权系统的压力
+4. **审计日志**：所有鉴权请求（通过和拒绝）记录到审计日志，支持事后追溯
+
+### 5.6 参考实现
 
 - HiClaw 的 Higress AI Gateway + Consumer Token 鉴权
 - 或基于 OpenAI/Anthropic 兼容 API 规范自建轻量代理（LiteLLM、One API 等）
@@ -817,7 +954,46 @@ graph TB
     end
 ```
 
-### 7.2 数据流：消息处理全链路
+### 7.2 对话历史存储
+
+每个企业的对话历史存在一张独立的 PostgreSQL 表中，按 `agent_id` 和 `group_id` 区分查询。
+
+**表结构：**
+
+```sql
+CREATE TABLE agent_{enterprise_id}_messages (
+    id            BIGSERIAL PRIMARY KEY,
+    agent_id      VARCHAR(64)  NOT NULL,       -- 企业 agent ID
+    group_id      VARCHAR(128) NOT NULL,       -- group key: "{platform}:{chat_id}"
+    platform      VARCHAR(16)  NOT NULL,       -- dingtalk / feishu / wework
+    chat_type     VARCHAR(8)   NOT NULL,       -- group / dm
+    role          VARCHAR(16)  NOT NULL,       -- user / assistant / system
+    sender_id     VARCHAR(64),                 -- 发送者 user_id（user 角色时）
+    sender_name   VARCHAR(128),                -- 发送者 display_name
+    content_type  VARCHAR(16)  NOT NULL,       -- text / image / file / ...
+    content_text  TEXT,                         -- 文本内容
+    content_meta  JSONB,                        -- 附件 URL、文件名等元数据
+    token_count   INT,                          -- 该消息的 token 用量
+    model         VARCHAR(64),                 -- 使用的 LLM 模型
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+
+    -- 按时间和群组查询
+    CONSTRAINT uq_message_id UNIQUE (id)
+);
+
+-- 核心查询索引
+CREATE INDEX idx_agent_group_time
+    ON agent_{enterprise_id}_messages (agent_id, group_id, created_at);
+```
+
+**关键设计：**
+
+- **一企一表**：每个企业一张独立的消息表，天然数据隔离，便于独立备份/归档/清理
+- **按 group 隔离**：所有查询通过 `(agent_id, group_id)` 过滤，同一企业不同 group 的对话完全隔离
+- **管理平台查询**：管理平台可跨 group 统计分析（按 `agent_id` 聚合），也可查看指定 group 的对话详情
+- **写入路径**：Agent 实例在每次对话完成后写入，或由 Message Gateway 统一写入
+
+### 7.3 数据流：消息处理全链路
 
 ```mermaid
 sequenceDiagram
@@ -860,7 +1036,7 @@ sequenceDiagram
     IM-->>U: 用户收到回复
 ```
 
-### 7.3 数据流：资源推送
+### 7.4 数据流：资源推送
 
 ```mermaid
 sequenceDiagram
@@ -890,7 +1066,7 @@ sequenceDiagram
     Note over AE: 后续消息使用新版本 persona
 ```
 
-### 7.4 个人 Agent 数据流
+### 7.5 个人 Agent 数据流
 
 ```mermaid
 graph TB
