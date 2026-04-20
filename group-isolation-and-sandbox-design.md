@@ -1,8 +1,8 @@
 # Group Isolation & Sandbox Security Design
 
-> 目标：为群聊场景实现按 chat group 隔离聊天记录、记忆、技能，并增强沙箱安全。
-
-Date: 2026-04-14
+> **分析对象**：[Hermes Agent](../hermes-agent/) — 开源多通道 AI Agent 运行时平台
+> **分析日期**：2026-04-14
+> **目标**：为群聊场景实现按 chat group 隔离聊天记录、记忆、技能，并增强沙箱安全。
 
 ---
 

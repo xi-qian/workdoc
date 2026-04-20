@@ -8,8 +8,8 @@
 
 ```mermaid
 graph TB
-    subgraph CHANNEL["📱 消息通道 (WhatsApp/Telegram/Slack)"]
-        W1[WhatsApp Network]
+    subgraph CHANNEL["📱 消息通道 (飞书/Telegram/Slack)"]
+        W1[飞书 Network]
         W2[同一账号<br/>接入多个服务]
     end
 
@@ -72,7 +72,7 @@ graph TB
 
 ### 1. 多 Agent 接入策略
 
-**问题：** 如何让同一个 WhatsApp 账号服务多个不同的 Agent？
+**问题：** 如何让同一个 飞书 账号服务多个不同的 Agent？
 
 **解决方案：** 部署多个 NanoClaw 实例，每个实例对应一个 Agent
 
@@ -118,9 +118,9 @@ graph TD
 
             subgraph GROUPS["Group 目录"]
                 direction LR
-                G1[whatsapp_main/<br/>主控制组]
-                G2[whatsapp_family/<br/>家庭群组]
-                G3[whatsapp_work/<br/>工作群组]
+                G1[飞书_main/<br/>主控制组]
+                G2[飞书_family/<br/>家庭群组]
+                G3[飞书_work/<br/>工作群组]
                 G4[telegram_dev/<br/>开发群组]
             end
 
@@ -135,7 +135,7 @@ graph TD
 
     subgraph MOUNTS["容器挂载"]
         direction LR
-        M1[/workspace/group<br/>→ whatsapp_main/]
+        M1[/workspace/group<br/>→ 飞书_main/]
         M2[/workspace/global<br/>→ groups/]
         M3[/home/node/.claude/<br/>→ data/sessions/main/.claude/]
     end
@@ -165,7 +165,7 @@ graph TD
 ```mermaid
 sequenceDiagram
     participant U as 用户
-    participant WA as WhatsApp
+    participant WA as 飞书
     participant I1 as 实例 1<br/>@Andy
     participant I2 as 实例 2<br/>@Bob
     participant I3 as 实例 3<br/>@DevHelper
@@ -208,9 +208,9 @@ export const TRIGGER_PATTERN = new RegExp(`^@DevHelper\\b`, 'i');
 ```mermaid
 graph LR
     subgraph HOST["主机文件系统"]
-        G1[groups/whatsapp_main/]
-        G2[groups/whatsapp_family/]
-        G3[groups/whatsapp_work/]
+        G1[groups/飞书_main/]
+        G2[groups/飞书_family/]
+        G3[groups/飞书_work/]
 
         S1[data/sessions/main/.claude/]
         S2[data/sessions/family/.claude/]
@@ -218,17 +218,17 @@ graph LR
     end
 
     subgraph C1["容器: Group Main"]
-        M1[/workspace/group<br/>↓<br/>whatsapp_main/]
+        M1[/workspace/group<br/>↓<br/>飞书_main/]
         M2[/home/node/.claude/<br/>↓<br/>main/.claude/]
     end
 
     subgraph C2["容器: Group Family"]
-        M3[/workspace/group<br/>↓<br/>whatsapp_family/]
+        M3[/workspace/group<br/>↓<br/>飞书_family/]
         M4[/home/node/.claude/<br/>↓<br/>family/.claude/]
     end
 
     subgraph C3["容器: Group Work"]
-        M5[/workspace/group<br/>↓<br/>whatsapp_work/]
+        M5[/workspace/group<br/>↓<br/>飞书_work/]
         M6[/home/node/.claude/<br/>↓<br/>work/.claude/]
     end
 
@@ -250,7 +250,7 @@ graph LR
 
 | 主机路径 | 容器路径 | 访问权限 | 说明 |
 |---------|---------|---------|------|
-| `groups/whatsapp_main/` | `/workspace/group` | 读写 | 当前组的目录 |
+| `groups/飞书_main/` | `/workspace/group` | 读写 | 当前组的目录 |
 | `groups/CLAUDE.md` | `/workspace/global` | 只读 | 全局内存 |
 | `data/sessions/main/.claude/` | `/home/node/.claude/` | 读写 | 会话数据 |
 | `data/env/env` | `/workspace/env-dir/env` | 只读 | 环境变量 |
@@ -286,8 +286,8 @@ CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-yyy
 ASSISTANT_NAME=DevHelper
 CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-zzz
 
-# 3. 共享 WhatsApp 认证
-# 所有实例使用相同的 WhatsApp session
+# 3. 共享 飞书 认证
+# 所有实例使用相同的 飞书 session
 cp /opt/nanoclaw-andy/store/auth/* /opt/nanoclaw-bob/store/auth/
 cp /opt/nanoclaw-andy/store/auth/* /opt/nanoclaw-dev/store/auth/
 
