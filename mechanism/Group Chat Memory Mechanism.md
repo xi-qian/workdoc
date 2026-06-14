@@ -175,3 +175,15 @@ type GroupPolicy = "disabled" | "allowlist" | "open"
 对于需要群间隔离的生产场景：
 1. **首选**：每个群使用独立 agent（完全隔离）
 2. **汇总需求**：如需跨群总结，增加一个专用 supervisor agent，通过外部脚本读取多个 agent 的记忆目录
+
+## Related
+
+* [[Agent Collaboration Patterns]]
+* [[Multi Agent Isolation]]
+* [[Clawith Memory Analysis]]
+* [[Manager Multi User Memory]]
+* [[Enterprise Agent Service Model]]
+
+## Tags
+
+#memory #isolation #openclaw #session-key

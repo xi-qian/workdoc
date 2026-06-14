@@ -100,3 +100,14 @@ Room "Worker: Alice" → Human Admin + Manager + Alice
 ## 结论
 
 当前架构**假设单一 human admin + 多个 Worker**。memory 系统没有 per-user 命名空间隔离。如果要支持真正的多用户场景，需要在 `memory/` 目录下加一层用户维度（比如 `memory/{user}/{date}.md`），并在 `AGENTS.md` 的 "Every Session" 流程中加上根据当前房间/发送者加载对应 memory 的逻辑。
+
+## Related
+
+* [[Group Chat Memory Mechanism]]
+* [[Agent Collaboration Patterns]]
+* [[Clawith Memory Analysis]]
+* [[Enterprise Agent Service Model]]
+
+## Tags
+
+#memory #hiclaw #multi-user #isolation

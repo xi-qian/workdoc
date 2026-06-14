@@ -344,6 +344,14 @@ sudo systemctl start nanoclaw-andy nanoclaw-bob nanoclaw-dev
 
 ---
 
-**文档版本:** 1.0
-**最后更新:** 2025-03-23
-**相关文档:** [SYSTEM_LAYERS.md](SYSTEM_LAYERS.md) | [ARCHITECTURE.md](ARCHITECTURE.md)
+## Related
+
+* [[System Layers]]
+* [[Agent Collaboration Patterns]]
+* [[Group Isolation Design]]
+* [[Enterprise Agent Service Model]]
+* [[Hermes Distributed Architecture]]
+
+## Tags
+
+#agent-architecture #nanoclaw #isolation #container

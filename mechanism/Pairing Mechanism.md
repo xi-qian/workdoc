@@ -157,3 +157,13 @@ capabilities: {
 | 私聊 (direct) | `dm.policy`: pairing / open / disabled + allowlist |
 | 群聊 (group) | `groups.policy`: disabled / allowlist / open + @提及要求 + 工具策略 |
 | 频道 (channel) | Bot 作为管理员加入，由平台控制访问权限 |
+
+## Related
+
+* [[Plugin Mechanism]]
+* [[Group Chat Memory Mechanism]]
+* [[Agent Collaboration Patterns]]
+
+## Tags
+
+#openclaw #pairing #security #channel

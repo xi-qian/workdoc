@@ -1,0 +1,1725 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SGLang Query 进入后的处理流程分析</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #111936;
+      --panel-2: #162044;
+      --text: #e8ecff;
+      --muted: #aab4d8;
+      --accent: #7cc7ff;
+      --accent-2: #a7f3d0;
+      --warn: #fbbf24;
+      --danger: #fb7185;
+      --line: #31406f;
+      --code: #0a0f1f;
+      --shadow: 0 18px 50px rgba(0, 0, 0, .35);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font: 15px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;
+      background:
+        radial-gradient(circle at 15% 10%, rgba(124, 199, 255, .22), transparent 28%),
+        radial-gradient(circle at 85% 0%, rgba(167, 243, 208, .12), transparent 26%),
+        linear-gradient(180deg, #080d1b 0%, var(--bg) 40%, #070b17 100%);
+      color: var(--text);
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      padding: .16rem .36rem;
+      border: 1px solid rgba(124, 199, 255, .18);
+      border-radius: 7px;
+      background: rgba(10, 15, 31, .78);
+      color: #dbeafe;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: .92em;
+    }
+
+    .wrap { width: min(1180px, calc(100% - 36px)); margin: 0 auto; }
+    header {
+      padding: 58px 0 34px;
+      border-bottom: 1px solid rgba(124, 199, 255, .15);
+    }
+    .eyebrow {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      padding: 6px 12px;
+      border: 1px solid rgba(124, 199, 255, .25);
+      border-radius: 999px;
+      background: rgba(17, 25, 54, .72);
+      color: var(--accent-2);
+      font-size: 13px;
+      letter-spacing: .02em;
+    }
+    h1 {
+      margin: 18px 0 10px;
+      font-size: clamp(32px, 5vw, 58px);
+      line-height: 1.08;
+      letter-spacing: -0.04em;
+    }
+    .subtitle {
+      max-width: 860px;
+      color: var(--muted);
+      font-size: 18px;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 22px;
+      color: var(--muted);
+    }
+    .pill {
+      padding: 7px 11px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .06);
+      border: 1px solid rgba(255, 255, 255, .08);
+    }
+
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(16px);
+      background: rgba(8, 13, 27, .78);
+      border-bottom: 1px solid rgba(124, 199, 255, .12);
+    }
+    nav .wrap {
+      display: flex;
+      gap: 18px;
+      overflow-x: auto;
+      padding: 12px 0;
+      white-space: nowrap;
+    }
+    nav a { color: var(--muted); font-size: 14px; }
+    nav a:hover { color: var(--text); }
+
+    main { padding: 34px 0 70px; }
+    section { margin: 30px 0; }
+    .card {
+      background: linear-gradient(180deg, rgba(17, 25, 54, .94), rgba(13, 19, 41, .94));
+      border: 1px solid rgba(124, 199, 255, .16);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 24px;
+    }
+    h2 {
+      margin: 0 0 15px;
+      font-size: 26px;
+      letter-spacing: -0.02em;
+    }
+    h3 { margin: 22px 0 10px; font-size: 18px; }
+    p { margin: 10px 0; color: var(--muted); }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 18px; }
+    .span-4 { grid-column: span 4; }
+    .span-6 { grid-column: span 6; }
+    .span-8 { grid-column: span 8; }
+    .span-12 { grid-column: span 12; }
+    @media (max-width: 900px) { .span-4, .span-6, .span-8 { grid-column: span 12; } }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+    }
+    .metric {
+      padding: 16px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, .045);
+      border: 1px solid rgba(255, 255, 255, .08);
+    }
+    .metric strong { display: block; color: var(--text); font-size: 18px; }
+    .metric span { color: var(--muted); font-size: 13px; }
+    @media (max-width: 760px) { .summary { grid-template-columns: 1fr; } }
+
+    .flow {
+      display: grid;
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .step {
+      display: grid;
+      grid-template-columns: 54px 1fr;
+      gap: 14px;
+      align-items: start;
+      padding: 16px;
+      border: 1px solid rgba(124, 199, 255, .13);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, .04);
+      position: relative;
+    }
+    .step:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      left: 42px;
+      bottom: -15px;
+      width: 2px;
+      height: 15px;
+      background: var(--line);
+    }
+    .num {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      background: linear-gradient(135deg, rgba(124, 199, 255, .22), rgba(167, 243, 208, .18));
+      border: 1px solid rgba(124, 199, 255, .28);
+      color: var(--accent-2);
+      font-weight: 700;
+    }
+    .step h3 { margin: 0 0 6px; }
+    .step p { margin: 0; }
+
+    .diagram {
+      overflow-x: auto;
+      padding: 18px;
+      border-radius: 16px;
+      background: rgba(5, 9, 20, .66);
+      border: 1px solid rgba(124, 199, 255, .13);
+    }
+    svg { max-width: 100%; height: auto; display: block; min-width: 960px; }
+    .svg-node { fill: #15214a; stroke: #5ba9e8; stroke-width: 1.3; }
+    .svg-node-green { fill: #12372f; stroke: #7dd3b0; stroke-width: 1.3; }
+    .svg-node-warn { fill: #352911; stroke: #fbbf24; stroke-width: 1.3; }
+    .svg-text { fill: #e8ecff; font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .svg-muted { fill: #aab4d8; font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .arrow { stroke: #7cc7ff; stroke-width: 1.5; fill: none; marker-end: url(#arrow); }
+
+    table { width: 100%; border-collapse: collapse; overflow: hidden; border-radius: 14px; }
+    th, td { padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,.08); vertical-align: top; }
+    th { text-align: left; color: var(--accent-2); background: rgba(255,255,255,.055); }
+    td { color: var(--muted); }
+    tr:last-child td { border-bottom: 0; }
+
+    .callout {
+      border-left: 4px solid var(--accent);
+      padding: 13px 15px;
+      border-radius: 12px;
+      background: rgba(124, 199, 255, .08);
+      color: var(--muted);
+    }
+    .warn { border-left-color: var(--warn); background: rgba(251, 191, 36, .08); }
+    .danger { border-left-color: var(--danger); background: rgba(251, 113, 133, .08); }
+    .refs li { margin: 6px 0; color: var(--muted); }
+    ul { padding-left: 20px; }
+    li { margin: 7px 0; color: var(--muted); }
+    .kbd {
+      display: inline-block;
+      border: 1px solid rgba(255,255,255,.14);
+      border-bottom-color: rgba(255,255,255,.26);
+      border-radius: 7px;
+      padding: 1px 7px;
+      background: rgba(255,255,255,.055);
+      color: var(--text);
+      font-size: 12px;
+    }
+    .mini-note {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .anim-shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(300px, .85fr);
+      gap: 20px;
+      align-items: start;
+      margin-top: 18px;
+    }
+    .anim-board {
+      position: relative;
+      overflow: hidden;
+      min-height: 460px;
+      border-radius: 18px;
+      border: 1px solid rgba(124, 199, 255, .16);
+      background:
+        radial-gradient(circle at 8% 10%, rgba(124, 199, 255, .12), transparent 24%),
+        radial-gradient(circle at 88% 14%, rgba(167, 243, 208, .08), transparent 18%),
+        linear-gradient(180deg, rgba(8, 13, 27, .95), rgba(9, 16, 31, .95));
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.03);
+      padding: 20px;
+    }
+    .anim-grid {
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(124, 199, 255, .05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(124, 199, 255, .05) 1px, transparent 1px);
+      background-size: 28px 28px;
+      mask-image: linear-gradient(180deg, rgba(0,0,0,.7), rgba(0,0,0,.12));
+      pointer-events: none;
+    }
+    .anim-stage {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      gap: 14px;
+    }
+    .lane {
+      border: 1px solid rgba(255,255,255,.09);
+      border-radius: 16px;
+      background: rgba(255,255,255,.04);
+      padding: 14px;
+    }
+    .lane-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+      color: var(--text);
+      font-size: 14px;
+    }
+    .lane-tag {
+      color: var(--accent-2);
+      font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .token-row,
+    .cache-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-height: 42px;
+    }
+    .token,
+    .cache-cell {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 52px;
+      height: 34px;
+      padding: 0 10px;
+      border-radius: 11px;
+      border: 1px solid rgba(255,255,255,.09);
+      background: rgba(255,255,255,.05);
+      color: var(--text);
+      font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      transition: transform .35s ease, background .35s ease, border-color .35s ease, opacity .35s ease, box-shadow .35s ease;
+    }
+    .token.prompt { background: rgba(124, 199, 255, .10); border-color: rgba(124, 199, 255, .25); }
+    .token.output { background: rgba(167, 243, 208, .10); border-color: rgba(167, 243, 208, .26); }
+    .token.active {
+      transform: translateY(-4px) scale(1.03);
+      box-shadow: 0 8px 20px rgba(124, 199, 255, .18);
+      border-color: rgba(124, 199, 255, .5);
+    }
+    .token.dimmed { opacity: .42; }
+    .token.flash::after,
+    .cache-cell.flash::after {
+      content: "";
+      position: absolute;
+      inset: -4px;
+      border-radius: 14px;
+      border: 1px solid rgba(124, 199, 255, .65);
+      box-shadow: 0 0 0 0 rgba(124, 199, 255, .3);
+      animation: pulse-ring .95s ease-out 1;
+    }
+    .cache-row {
+      align-items: center;
+      padding-top: 2px;
+    }
+    .cache-cell {
+      min-width: 70px;
+      height: 42px;
+      background: rgba(14, 22, 45, .78);
+      border-style: dashed;
+      color: var(--muted);
+    }
+    .cache-cell.filled {
+      color: var(--text);
+      border-style: solid;
+      background: linear-gradient(180deg, rgba(91, 169, 232, .16), rgba(22, 32, 68, .88));
+      border-color: rgba(124, 199, 255, .34);
+    }
+    .cache-cell.reused {
+      background: linear-gradient(180deg, rgba(125, 211, 176, .16), rgba(18, 55, 47, .88));
+      border-color: rgba(125, 211, 176, .38);
+    }
+    .cache-cell.new {
+      background: linear-gradient(180deg, rgba(251, 191, 36, .16), rgba(53, 41, 17, .88));
+      border-color: rgba(251, 191, 36, .4);
+    }
+    .cache-cell.small {
+      min-width: 58px;
+      height: 34px;
+      font-size: 11px;
+    }
+    .kv-flow {
+      display: grid;
+      grid-template-columns: 1fr 70px 1fr;
+      gap: 10px;
+      align-items: center;
+      margin-top: 14px;
+    }
+    .kv-box {
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.04);
+      padding: 12px;
+      min-height: 110px;
+    }
+    .kv-arrow {
+      position: relative;
+      height: 6px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(124, 199, 255, .12), rgba(124, 199, 255, .5), rgba(167, 243, 208, .14));
+      overflow: hidden;
+    }
+    .kv-arrow::after {
+      content: "";
+      position: absolute;
+      inset: -3px auto -3px -28px;
+      width: 28px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(255,255,255,.08), rgba(255,255,255,.75), rgba(255,255,255,.08));
+      animation: arrow-flow 2.2s linear infinite;
+    }
+    .anim-side {
+      display: grid;
+      gap: 14px;
+    }
+    .phase-card,
+    .legend-card {
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.04);
+      padding: 16px;
+    }
+    .phase-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .phase-index {
+      min-width: 34px;
+      height: 34px;
+      border-radius: 11px;
+      display: grid;
+      place-items: center;
+      background: rgba(124, 199, 255, .12);
+      border: 1px solid rgba(124, 199, 255, .25);
+      color: var(--accent-2);
+      font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .phase-text {
+      color: var(--muted);
+      min-height: 74px;
+    }
+    .phase-progress {
+      display: grid;
+      gap: 8px;
+    }
+    .phase-dots {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .phase-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.13);
+      transition: transform .25s ease, background .25s ease;
+    }
+    .phase-dot.active {
+      background: var(--accent);
+      transform: scale(1.18);
+    }
+    .phase-bar {
+      height: 8px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(255,255,255,.06);
+    }
+    .phase-bar-fill {
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      transition: width .45s ease;
+    }
+    .anim-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 14px 0 0;
+    }
+    .control-btn {
+      appearance: none;
+      border: 1px solid rgba(124, 199, 255, .18);
+      border-radius: 12px;
+      background: rgba(255,255,255,.05);
+      color: var(--text);
+      padding: 10px 14px;
+      font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      cursor: pointer;
+      transition: background .25s ease, border-color .25s ease, transform .25s ease;
+    }
+    .control-btn:hover {
+      background: rgba(124, 199, 255, .10);
+      border-color: rgba(124, 199, 255, .32);
+      transform: translateY(-1px);
+    }
+    .control-btn[aria-pressed="true"] {
+      background: rgba(125, 211, 176, .12);
+      border-color: rgba(125, 211, 176, .34);
+    }
+    .legend {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .swatch {
+      width: 16px;
+      height: 16px;
+      border-radius: 5px;
+      border: 1px solid rgba(255,255,255,.12);
+    }
+    .swatch.prompt { background: rgba(124, 199, 255, .22); border-color: rgba(124, 199, 255, .32); }
+    .swatch.reused { background: rgba(125, 211, 176, .22); border-color: rgba(125, 211, 176, .35); }
+    .swatch.new { background: rgba(251, 191, 36, .22); border-color: rgba(251, 191, 36, .35); }
+    .swatch.output { background: rgba(167, 243, 208, .22); border-color: rgba(167, 243, 208, .35); }
+    .stack-note {
+      display: grid;
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .radix-shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(300px, .95fr);
+      gap: 20px;
+      align-items: start;
+      margin-top: 18px;
+    }
+    .radix-board {
+      position: relative;
+      overflow: hidden;
+      min-height: 470px;
+      border-radius: 18px;
+      border: 1px solid rgba(124, 199, 255, .16);
+      background:
+        radial-gradient(circle at 18% 10%, rgba(167, 243, 208, .12), transparent 22%),
+        radial-gradient(circle at 88% 12%, rgba(251, 191, 36, .10), transparent 18%),
+        linear-gradient(180deg, rgba(7, 11, 23, .96), rgba(11, 16, 32, .96));
+      padding: 22px;
+    }
+    .radix-layout {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      gap: 16px;
+    }
+    .radix-tree {
+      position: relative;
+      min-height: 240px;
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.04);
+      padding: 16px;
+    }
+    .tree-node {
+      position: absolute;
+      min-width: 86px;
+      padding: 8px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(124, 199, 255, .16);
+      background: rgba(20, 33, 74, .88);
+      color: var(--text);
+      font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      text-align: center;
+      transition: transform .3s ease, background .3s ease, border-color .3s ease, opacity .3s ease, box-shadow .3s ease;
+    }
+    .tree-node.root { left: 50%; top: 16px; transform: translateX(-50%); }
+    .tree-node.n1 { left: 12%; top: 92px; }
+    .tree-node.n2 { left: 38%; top: 92px; }
+    .tree-node.n3 { left: 64%; top: 92px; }
+    .tree-node.n4 { left: 25%; top: 168px; }
+    .tree-node.n5 { left: 54%; top: 168px; }
+    .tree-node.active {
+      border-color: rgba(125, 211, 176, .44);
+      background: rgba(18, 55, 47, .94);
+      box-shadow: 0 10px 24px rgba(125, 211, 176, .14);
+    }
+    .tree-node.hit {
+      border-color: rgba(124, 199, 255, .42);
+      background: rgba(21, 33, 74, .96);
+      box-shadow: 0 10px 24px rgba(124, 199, 255, .14);
+    }
+    .tree-node.dimmed { opacity: .34; }
+    .tree-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    .tree-path {
+      stroke: rgba(124, 199, 255, .18);
+      stroke-width: 2;
+      fill: none;
+      transition: stroke .3s ease, opacity .3s ease;
+    }
+    .tree-path.active {
+      stroke: rgba(125, 211, 176, .72);
+    }
+    .tree-path.hit {
+      stroke: rgba(124, 199, 255, .70);
+    }
+    .radix-request {
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.04);
+      padding: 14px;
+    }
+    .request-strip,
+    .suffix-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-height: 40px;
+      margin-top: 10px;
+    }
+    .request-token {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 54px;
+      height: 34px;
+      padding: 0 10px;
+      border-radius: 11px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.05);
+      color: var(--text);
+      font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      transition: transform .3s ease, background .3s ease, border-color .3s ease, opacity .3s ease;
+    }
+    .request-token.hit {
+      background: rgba(124, 199, 255, .12);
+      border-color: rgba(124, 199, 255, .32);
+    }
+    .request-token.suffix {
+      background: rgba(251, 191, 36, .12);
+      border-color: rgba(251, 191, 36, .34);
+    }
+    .request-token.active {
+      transform: translateY(-3px);
+    }
+    .request-token.dimmed { opacity: .36; }
+    .radix-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .metric-box {
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.04);
+      padding: 10px 12px;
+    }
+    .metric-box strong {
+      display: block;
+      color: var(--text);
+      font-size: 16px;
+    }
+    .metric-box span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    @media (max-width: 980px) {
+      .radix-shell { grid-template-columns: 1fr; }
+      .radix-board { min-height: 430px; }
+      .radix-metrics { grid-template-columns: 1fr; }
+    }
+    @keyframes pulse-ring {
+      0% { transform: scale(.96); opacity: .85; box-shadow: 0 0 0 0 rgba(124, 199, 255, .28); }
+      100% { transform: scale(1.08); opacity: 0; box-shadow: 0 0 0 18px rgba(124, 199, 255, 0); }
+    }
+    @keyframes arrow-flow {
+      0% { transform: translateX(0); opacity: .15; }
+      25% { opacity: .75; }
+      100% { transform: translateX(98px); opacity: .1; }
+    }
+    @media (max-width: 980px) {
+      .anim-shell { grid-template-columns: 1fr; }
+      .anim-board { min-height: 420px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <div class="eyebrow">SGLang Runtime / Query Pipeline</div>
+      <h1>一个 query 进入 SGLang 后的处理流程</h1>
+      <p class="subtitle">
+        本文基于当前仓库源码，追踪从 HTTP/OpenAI 兼容接口收到请求，到 tokenizer、scheduler、model worker、detokenizer，再回到客户端的完整链路。
+      </p>
+      <div class="meta">
+        <span class="pill">分析范围：<code>python/sglang/srt</code></span>
+        <span class="pill">主入口：<code>/generate</code>、<code>/v1/chat/completions</code></span>
+        <span class="pill">生成日期：2026-05-15</span>
+      </div>
+    </div>
+  </header>
+
+  <nav>
+    <div class="wrap">
+      <a href="#overview">总览</a>
+      <a href="#startup">启动结构</a>
+      <a href="#http">HTTP 入口</a>
+      <a href="#tokenizer">TokenizerManager</a>
+      <a href="#scheduler">Scheduler</a>
+      <a href="#forward">模型执行</a>
+      <a href="#scheduler-deep">调度细节</a>
+      <a href="#model-deep">Forward 细节</a>
+      <a href="#kv-animation">KV 动画</a>
+      <a href="#return">回传路径</a>
+      <a href="#streaming">流式与非流式</a>
+      <a href="#refs">关键源码</a>
+    </div>
+  </nav>
+
+  <main class="wrap">
+    <section id="overview" class="card">
+      <h2>一眼看懂</h2>
+      <div class="summary">
+        <div class="metric"><strong>1. 接收</strong><span>FastAPI 接收 native 或 OpenAI 请求</span></div>
+        <div class="metric"><strong>2. 规范化</strong><span>OpenAI 请求转为内部 <code>GenerateReqInput</code></span></div>
+        <div class="metric"><strong>3. 调度执行</strong><span>TokenizerManager 经 ZMQ 送入 Scheduler</span></div>
+        <div class="metric"><strong>4. 解码返回</strong><span>Detokenizer 生成文本，唤醒 HTTP 协程返回</span></div>
+      </div>
+      <p class="callout">
+        简化公式：<code>HTTP 请求 → GenerateReqInput → TokenizedGenerateReqInput → Req → ScheduleBatch → ModelWorker.forward → BatchTokenIDOutput → BatchStrOutput → HTTP Response/SSE</code>。
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>整体链路图</h2>
+      <div class="diagram" aria-label="SGLang query pipeline diagram">
+        <svg width="1080" height="520" viewBox="0 0 1080 520" role="img">
+          <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L9,3 z" fill="#7cc7ff" />
+            </marker>
+          </defs>
+
+          <rect class="svg-node" x="30" y="50" width="190" height="76" rx="14" />
+          <text class="svg-text" x="52" y="82">Client Query</text>
+          <text class="svg-muted" x="52" y="105">/generate 或 /v1/chat</text>
+
+          <rect class="svg-node" x="280" y="35" width="215" height="105" rx="14" />
+          <text class="svg-text" x="302" y="67">FastAPI http_server</text>
+          <text class="svg-muted" x="302" y="91">路由 / 参数校验</text>
+          <text class="svg-muted" x="302" y="113">OpenAI wrapper 转内部请求</text>
+
+          <rect class="svg-node-green" x="560" y="35" width="220" height="105" rx="14" />
+          <text class="svg-text" x="582" y="67">TokenizerManager</text>
+          <text class="svg-muted" x="582" y="91">rid / ReqState</text>
+          <text class="svg-muted" x="582" y="113">tokenize + multimodal preprocess</text>
+
+          <rect class="svg-node-warn" x="835" y="35" width="205" height="105" rx="14" />
+          <text class="svg-text" x="857" y="67">ZMQ IPC</text>
+          <text class="svg-muted" x="857" y="91">scheduler_input_ipc</text>
+          <text class="svg-muted" x="857" y="113">TokenizedGenerateReqInput</text>
+
+          <rect class="svg-node" x="835" y="205" width="205" height="110" rx="14" />
+          <text class="svg-text" x="857" y="237">Scheduler</text>
+          <text class="svg-muted" x="857" y="261">waiting_queue</text>
+          <text class="svg-muted" x="857" y="283">prefix cache / batching</text>
+
+          <rect class="svg-node-green" x="560" y="205" width="220" height="110" rx="14" />
+          <text class="svg-text" x="582" y="237">ModelWorker / TP Worker</text>
+          <text class="svg-muted" x="582" y="261">prefill / decode forward</text>
+          <text class="svg-muted" x="582" y="283">sampling next token</text>
+
+          <rect class="svg-node" x="280" y="205" width="215" height="110" rx="14" />
+          <text class="svg-text" x="302" y="237">DetokenizerManager</text>
+          <text class="svg-muted" x="302" y="261">BatchTokenIDOutput</text>
+          <text class="svg-muted" x="302" y="283">token ids → text delta</text>
+
+          <rect class="svg-node-green" x="30" y="205" width="190" height="110" rx="14" />
+          <text class="svg-text" x="52" y="237">TokenizerManager</text>
+          <text class="svg-muted" x="52" y="261">_handle_batch_output</text>
+          <text class="svg-muted" x="52" y="283">event.set 唤醒等待者</text>
+
+          <rect class="svg-node" x="30" y="385" width="190" height="76" rx="14" />
+          <text class="svg-text" x="52" y="417">HTTP Response</text>
+          <text class="svg-muted" x="52" y="440">JSON 或 SSE data</text>
+
+          <path class="arrow" d="M220 88 H280" />
+          <path class="arrow" d="M495 88 H560" />
+          <path class="arrow" d="M780 88 H835" />
+          <path class="arrow" d="M938 140 V205" />
+          <path class="arrow" d="M835 260 H780" />
+          <path class="arrow" d="M560 260 H495" />
+          <path class="arrow" d="M280 260 H220" />
+          <path class="arrow" d="M125 315 V385" />
+
+          <text class="svg-muted" x="855" y="178">recv_requests/process_input</text>
+          <text class="svg-muted" x="650" y="178">run_batch</text>
+          <text class="svg-muted" x="360" y="178">detokenize</text>
+          <text class="svg-muted" x="42" y="350">_wait_one_response</text>
+        </svg>
+      </div>
+    </section>
+
+    <section id="startup" class="grid">
+      <div class="card span-6">
+        <h2>启动结构</h2>
+        <p>SRT server 启动后，主进程里运行 HTTP server、Engine 和 TokenizerManager；Scheduler 与 DetokenizerManager 是子进程，通过 ZMQ IPC 传对象。</p>
+        <ul>
+          <li><code>Engine</code> 注释明确了三个组件：TokenizerManager、Scheduler、DetokenizerManager。</li>
+          <li><code>_launch_scheduler_processes</code> 按 TP/PP/DP 拓扑拉起 scheduler 子进程。</li>
+          <li><code>run_detokenizer_process</code> 拉起 detokenizer 事件循环。</li>
+        </ul>
+      </div>
+      <div class="card span-6">
+        <h2>进程职责</h2>
+        <table>
+          <thead><tr><th>组件</th><th>职责</th></tr></thead>
+          <tbody>
+            <tr><td><code>http_server.py</code></td><td>FastAPI 路由、SSE/JSON 响应、OpenAI/Ollama/Anthropic 兼容入口。</td></tr>
+            <tr><td><code>TokenizerManager</code></td><td>请求状态管理、tokenize、多模态预处理、向 scheduler 发送、等待输出。</td></tr>
+            <tr><td><code>Scheduler</code></td><td>排队、prefix cache 匹配、prefill/decode batching、调模型 worker。</td></tr>
+            <tr><td><code>DetokenizerManager</code></td><td>把输出 token ids 增量 decode 成文本，转为 <code>BatchStrOutput</code>。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="http" class="card">
+      <h2>HTTP / OpenAI 入口</h2>
+      <div class="flow">
+        <div class="step"><div class="num">1</div><div><h3>Native <code>/generate</code></h3><p><code>http_server.generate_request</code> 直接接收 <code>GenerateReqInput</code>。如果 <code>stream=true</code>，包装为 <code>StreamingResponse</code> 并持续 yield <code>data: ...</code>；否则只取 generator 的第一个最终结果。</p></div></div>
+        <div class="step"><div class="num">2</div><div><h3>OpenAI <code>/v1/chat/completions</code></h3><p>FastAPI 路由进入 <code>OpenAIServingChat.handle_request</code>。公共基类先做校验和日志，再调用 <code>_convert_to_internal_request</code>。</p></div></div>
+        <div class="step"><div class="num">3</div><div><h3>Chat prompt 转换</h3><p><code>OpenAIServingChat</code> 处理 messages、chat template、多模态输入、tool/reasoning 约束，最终构造内部 <code>GenerateReqInput</code>。</p></div></div>
+        <div class="step"><div class="num">4</div><div><h3>Completions 转换</h3><p><code>OpenAIServingCompletion</code> 处理 prompt、sampling params、logprobs/echo，最终也构造 <code>GenerateReqInput</code>。</p></div></div>
+      </div>
+    </section>
+
+    <section id="tokenizer" class="card">
+      <h2>TokenizerManager：请求进入引擎前的主控层</h2>
+      <p><code>TokenizerManager.generate_request</code> 是大部分生成请求的核心入口。它把 HTTP 层对象变成 scheduler 能处理的 tokenized 对象，同时维护异步等待状态。</p>
+      <div class="flow">
+        <div class="step"><div class="num">1</div><div><h3>标准化请求</h3><p>调用 <code>normalize_batch_and_arguments</code>、设置默认优先级、检查 <code>routed_dp_rank</code>。</p></div></div>
+        <div class="step"><div class="num">2</div><div><h3>建立请求状态</h3><p><code>_init_req_state</code> 为每个 request id 创建 <code>ReqState</code>，后续 detokenizer 回包会写入这个 state 并设置 event。</p></div></div>
+        <div class="step"><div class="num">3</div><div><h3>等待 pause / 权重更新锁</h3><p>如果服务被暂停会等待；进入 <code>model_update_lock.reader_lock</code> 后解析 LoRA，避免与模型热更新冲突。</p></div></div>
+        <div class="step"><div class="num">4</div><div><h3>tokenize 与多模态处理</h3><p><code>_tokenize_one_request</code> 处理 <code>input_ids</code>、<code>input_embeds</code>、文本 tokenizer、多模态 processor，并产出 <code>TokenizedGenerateReqInput</code>。</p></div></div>
+        <div class="step"><div class="num">5</div><div><h3>发送 scheduler</h3><p><code>_send_one_request</code> 通过 <code>send_to_scheduler.send_pyobj</code> 把 tokenized 对象推到 scheduler 的 PULL socket。</p></div></div>
+        <div class="step"><div class="num">6</div><div><h3>等待响应</h3><p><code>_wait_one_response</code> 等待 <code>ReqState.event</code>。流式请求中间 chunk 会直接 yield；非流式请求直到 <code>finished</code> 才返回。</p></div></div>
+      </div>
+    </section>
+
+    <section id="scheduler" class="card">
+      <h2>Scheduler：排队、缓存与批处理</h2>
+      <p>Scheduler 子进程从 tokenizer 接收对象，转成内部 <code>Req</code>，进入 waiting queue，再按策略形成 <code>ScheduleBatch</code> 执行。</p>
+      <div class="grid">
+        <div class="span-6">
+          <h3>事件循环</h3>
+          <ul>
+            <li><code>event_loop_normal</code>：收请求 → 处理输入 → 取下一批 → 跑 batch → 处理结果。</li>
+            <li><code>event_loop_overlap</code>：把 CPU 调度与 GPU forward 重叠，降低吞吐瓶颈。</li>
+            <li><code>recv_requests</code>：入口 rank 从 tokenizer/rpc socket 非阻塞读取，再按 TP/DP/CP 广播。</li>
+          </ul>
+        </div>
+        <div class="span-6">
+          <h3>请求入队</h3>
+          <ul>
+            <li><code>TypeBasedDispatcher</code> 把 <code>TokenizedGenerateReqInput</code> 分发到 <code>handle_generate_request</code>。</li>
+            <li><code>handle_generate_request</code> 创建 <code>Req</code>，补齐 session、bootstrap、multimodal、logprob、grammar 等信息。</li>
+            <li><code>_add_request_to_queue</code> 根据普通/Prefill/Decode disaggregation 模式放入对应队列。</li>
+          </ul>
+        </div>
+      </div>
+      <p class="callout warn">重要：真正的 batching 不是在 HTTP 层完成，而是在 Scheduler 基于当前 running batch、waiting queue、KV cache、max tokens、chunked prefill、LoRA、优先级等约束动态决定。</p>
+    </section>
+
+    <section id="forward" class="card">
+      <h2>模型执行：Prefill 与 Decode</h2>
+      <div class="flow">
+        <div class="step"><div class="num">1</div><div><h3>选择 batch</h3><p><code>get_next_batch_to_run</code> 从 waiting queue 选出可运行请求，创建 <code>ScheduleBatch</code>；同时处理 prefix cache 命中、KV pool 分配、chunked prefill、preemption 等。</p></div></div>
+        <div class="step"><div class="num">2</div><div><h3>执行 forward</h3><p><code>run_batch</code> 根据 forward mode 调用 <code>model_worker.forward_batch_generation</code> 或 embedding 路径。生成模型通常先 prefill prompt，再 decode 一个或多个 token。</p></div></div>
+        <div class="step"><div class="num">3</div><div><h3>采样与结束判断</h3><p>forward 结果包含 next token、logprobs、finish reason 等。Scheduler 更新请求状态，决定继续 decode、结束、abort、或者流式输出。</p></div></div>
+        <div class="step"><div class="num">4</div><div><h3>结果送出</h3><p>生成路径把 token id 结果封装为 <code>BatchTokenIDOutput</code> 送到 detokenizer；embedding 路径可返回 <code>BatchEmbeddingOutput</code>。</p></div></div>
+      </div>
+    </section>
+
+    <section id="scheduler-deep" class="card">
+      <h2>Scheduler 深入：一次调度循环里发生什么</h2>
+      <p>Scheduler 的核心循环可以理解为一个“持续填充 + 持续解码”的状态机。每轮循环先吸收新请求，再优先尝试 prefill；如果没有可 prefill 的新 batch，就推进当前 running decode batch。</p>
+      <div class="diagram" aria-label="Scheduler deep dive diagram">
+        <svg width="1080" height="430" viewBox="0 0 1080 430" role="img">
+          <defs>
+            <marker id="arrow2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L9,3 z" fill="#7cc7ff" />
+            </marker>
+          </defs>
+          <rect class="svg-node" x="35" y="40" width="190" height="80" rx="14" />
+          <text class="svg-text" x="57" y="72">recv_requests</text>
+          <text class="svg-muted" x="57" y="96">ZMQ 非阻塞收包</text>
+
+          <rect class="svg-node" x="280" y="40" width="210" height="80" rx="14" />
+          <text class="svg-text" x="302" y="72">process_input</text>
+          <text class="svg-muted" x="302" y="96">Tokenized → Req</text>
+
+          <rect class="svg-node-green" x="545" y="40" width="220" height="80" rx="14" />
+          <text class="svg-text" x="567" y="72">waiting_queue</text>
+          <text class="svg-muted" x="567" y="96">priority / grammar / LoRA</text>
+
+          <rect class="svg-node-warn" x="820" y="40" width="220" height="80" rx="14" />
+          <text class="svg-text" x="842" y="72">PrefillAdder</text>
+          <text class="svg-muted" x="842" y="96">prefix cache + KV 预算</text>
+
+          <rect class="svg-node-green" x="820" y="190" width="220" height="92" rx="14" />
+          <text class="svg-text" x="842" y="222">ScheduleBatch EXTEND</text>
+          <text class="svg-muted" x="842" y="246">prepare_for_extend</text>
+          <text class="svg-muted" x="842" y="266">prompt/chunk prefill</text>
+
+          <rect class="svg-node" x="545" y="190" width="220" height="92" rx="14" />
+          <text class="svg-text" x="567" y="222">running_batch</text>
+          <text class="svg-muted" x="567" y="246">活跃 decode 请求</text>
+          <text class="svg-muted" x="567" y="266">filter finished/retracted</text>
+
+          <rect class="svg-node" x="280" y="190" width="210" height="92" rx="14" />
+          <text class="svg-text" x="302" y="222">ScheduleBatch DECODE</text>
+          <text class="svg-muted" x="302" y="246">prepare_for_decode</text>
+          <text class="svg-muted" x="302" y="266">每请求追加 1 token KV</text>
+
+          <rect class="svg-node-green" x="35" y="190" width="190" height="92" rx="14" />
+          <text class="svg-text" x="57" y="222">run_batch</text>
+          <text class="svg-muted" x="57" y="246">ModelWorker.forward</text>
+          <text class="svg-muted" x="57" y="266">sample next token</text>
+
+          <rect class="svg-node" x="280" y="335" width="210" height="58" rx="14" />
+          <text class="svg-text" x="302" y="369">process_batch_result</text>
+
+          <rect class="svg-node" x="545" y="335" width="220" height="58" rx="14" />
+          <text class="svg-text" x="567" y="369">stream_output</text>
+
+          <path class="arrow" marker-end="url(#arrow2)" d="M225 80 H280" />
+          <path class="arrow" marker-end="url(#arrow2)" d="M490 80 H545" />
+          <path class="arrow" marker-end="url(#arrow2)" d="M765 80 H820" />
+          <path class="arrow" marker-end="url(#arrow2)" d="M930 120 V190" />
+          <path class="arrow" marker-end="url(#arrow2)" d="M820 236 H765" />
+          <path class="arrow" marker-end="url(#arrow2)" d="M545 236 H490" />
+          <path class="arrow" marker-end="url(#arrow2)" d="M280 236 H225" />
+          <path class="arrow" marker-end="url(#arrow2)" d="M130 282 C130 350, 225 364, 280 364" />
+          <path class="arrow" marker-end="url(#arrow2)" d="M490 364 H545" />
+          <path class="arrow" marker-end="url(#arrow2)" d="M765 364 C1010 364, 1040 150, 930 120" />
+        </svg>
+      </div>
+
+      <h3>1. <code>event_loop_normal</code> / <code>event_loop_overlap</code></h3>
+      <ul>
+        <li><code>event_loop_normal</code> 顺序执行：<code>recv_requests()</code> → <code>process_input_requests()</code> → <code>get_next_batch_to_run()</code> → <code>run_batch()</code> → <code>process_batch_result()</code>。</li>
+        <li><code>event_loop_overlap</code> 使用 <code>result_queue</code> 让当前 batch 的 GPU forward 与上一 batch 的 CPU 结果处理重叠；遇到连续 prefill、spec+grammar 等情况会关闭重叠。</li>
+        <li>rank 0 从 tokenizer/rpc socket 收包后，会根据 TP/DP/CP 拓扑广播给其他 rank，保证各 rank 看到一致的 work/control request。</li>
+      </ul>
+
+      <h3>2. <code>get_next_batch_to_run</code> 的优先级</h3>
+      <table>
+        <thead><tr><th>阶段</th><th>关键动作</th><th>结果</th></tr></thead>
+        <tbody>
+          <tr><td>清理</td><td>处理 waiting/running timeout、过滤 finished/retracted 请求、把上轮 extend batch 合并进 running batch。</td><td>得到干净的 <code>running_batch</code>。</td></tr>
+          <tr><td>优先 prefill</td><td>调用 <code>get_new_batch_prefill</code>，只要有可运行的新请求或 chunked request，就优先构造 EXTEND batch。</td><td>新 query 更快 TTFT。</td></tr>
+          <tr><td>否则 decode</td><td>如果没有 prefill batch 且 running batch 非空，调用 <code>update_running_batch</code> 并准备 DECODE batch。</td><td>继续为已有请求生成下一个 token。</td></tr>
+          <tr><td>全局同步</td><td>DP attention / MLP sync / ngram embedding 等会进一步包装或调整返回 batch。</td><td>保证分布式 forward 一致。</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3. PrefillAdder 如何决定哪些请求能进 batch</h3>
+      <ul>
+        <li><strong>优先级：</strong><code>schedule_policy.calc_priority</code> 先对 waiting queue 排序，支持 priority scheduling 与低/高优先级方向配置。</li>
+        <li><strong>容量：</strong>同时受 <code>max_running_requests</code>、<code>pp_max_micro_batch_size</code>、<code>max_prefill_tokens</code>、KV pool 可用 token 数、<code>prefill_max_requests</code> 限制。</li>
+        <li><strong>缓存：</strong><code>req.init_next_round_input(tree_cache)</code> 计算 prefix cache 命中，<code>prepare_for_extend</code> 只把未命中的后缀 token 放进 prefill。</li>
+        <li><strong>chunked prefill：</strong>长 prompt 可被切块，<code>chunked_req</code> 记录未完成的 prefill chunk；动态 chunking 会根据历史长度预测下一块大小。</li>
+        <li><strong>HiCache：</strong>启用分层缓存时，会先检查异步 prefetch 是否完成，并记录 device/host/storage 命中明细。</li>
+        <li><strong>LoRA：</strong>batch 内 LoRA 数量受 <code>max_loras_per_batch</code> 和 LoRA manager 校验限制，可选择 overlap loading。</li>
+      </ul>
+
+      <h3>4. Decode 内存不足时如何处理</h3>
+      <p><code>update_running_batch</code> 会先 <code>filter_batch</code> 移除结束请求，然后调用 <code>check_decode_mem</code> 预估下一轮 decode 需要的 KV token。如果不够，会通过 <code>retract_decode</code> 回收部分请求，把它们重新放回队列；极端情况下最后一个请求也放不下，则生成 abort 输出而不是让 scheduler 崩溃。</p>
+
+      <h3>5. Prefill/Decode 结果处理差异</h3>
+      <table>
+        <thead><tr><th>处理函数</th><th>输入</th><th>核心动作</th></tr></thead>
+        <tbody>
+          <tr><td><code>process_batch_result_prefill</code></td><td>EXTEND batch 的 logits 和 next token</td><td>把首个生成 token 写入 <code>req.output_ids</code>；处理 input logprobs、hidden states、grammar；未结束请求写入 prefix cache 并进入后续 decode。</td></tr>
+          <tr><td><code>process_batch_result_decode</code></td><td>DECODE batch 的 next token / spec accepted tokens</td><td>追加输出 token；更新 reasoning token、grammar、logprobs；结束时释放 KV cache；最后调用 <code>stream_output</code>。</td></tr>
+          <tr><td><code>stream_output_generation</code></td><td>一组 <code>Req</code></td><td>按 stream interval、stop 字符串前缀、force interval 判断是否输出，封装 <code>BatchTokenIDOutput</code> 发给 detokenizer。</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="model-deep" class="card">
+      <h2>模型执行深入：从 ScheduleBatch 到 logits / next token</h2>
+      <p>Scheduler 并不直接调用具体模型文件，而是先把 <code>ScheduleBatch</code> 转成 <code>ModelWorkerBatch</code>，再由 <code>TpModelWorker</code> 构造 <code>ForwardBatch</code>，最后进入 <code>ModelRunner.forward</code>。</p>
+      <div class="flow">
+        <div class="step"><div class="num">1</div><div><h3><code>ScheduleBatch.get_model_worker_batch</code></h3><p>把 scheduler 层的请求、KV pool 索引、seq_lens、sampling info、LoRA、多模态、spec 信息打包成 worker 可用的 batch。</p></div></div>
+        <div class="step"><div class="num">2</div><div><h3><code>TpModelWorker.forward_batch_generation</code></h3><p>调用 <code>ForwardBatch.init_new</code> 生成真正传入模型的张量视图；如果是 PP 最后一 rank，则负责得到 logits 并采样 next token，否则只向后传 pipeline proxy tensors。</p></div></div>
+        <div class="step"><div class="num">3</div><div><h3><code>ModelRunner.forward</code></h3><p>包裹 profiler、expert distribution recorder、routed experts/indexer capture、elastic EP 恢复等横切逻辑，然后调用 <code>_forward_raw</code>。</p></div></div>
+        <div class="step"><div class="num">4</div><div><h3><code>_forward_raw</code></h3><p>优先检查 decode CUDA graph 能否 replay；否则准备 MLP sync 或 attention TP scatter，初始化 attention metadata，再按 forward mode 走 decode/extend/split-prefill/idle。</p></div></div>
+        <div class="step"><div class="num">5</div><div><h3><code>sample</code></h3><p>对 logits 应用 grammar vocab mask、logits bias、penalty/sampling 参数，然后由 sampler 产出 <code>next_token_ids</code>，并写回 logprob 相关字段。</p></div></div>
+      </div>
+
+      <h3>Forward mode 对照</h3>
+      <table>
+        <thead><tr><th>Forward mode</th><th>何时使用</th><th>模型输入</th><th>主要优化</th></tr></thead>
+        <tbody>
+          <tr><td><code>EXTEND</code></td><td>新请求 prefill、长 prompt chunk、prefill-only 请求</td><td>未缓存的 prompt 后缀 token，positions 是连续区间</td><td>prefix cache 跳过已算 token；piecewise CUDA graph；chunked prefill。</td></tr>
+          <tr><td><code>DECODE</code></td><td>running batch 每轮生成下一个 token</td><td>上一轮输出 token，每个请求通常 1 token</td><td>固定 batch/shape 时 replay CUDA graph；每轮只分配一个 KV slot。</td></tr>
+          <tr><td><code>MIXED</code></td><td>mixed chunked prefill 开启且可与 running decode 合批</td><td>prefill token + decode token 拼接</td><td>提高 GPU 利用率，但避开 logprob/input_embeds 等不兼容场景。</td></tr>
+          <tr><td><code>SPLIT_PREFILL</code></td><td>PD multiplexing 或特殊 split prefill</td><td>按 split 状态分段传递 hidden/residual</td><td>把大 prefill 拆成更可控的 forward 片段。</td></tr>
+          <tr><td><code>IDLE</code></td><td>DP attention 需要同步但本 rank 无真实工作</td><td>空或 padding batch</td><td>保持分布式 MLP/attention 同步不死锁。</td></tr>
+        </tbody>
+      </table>
+
+      <h3><code>prepare_for_extend</code>：prefill 张量如何准备</h3>
+      <ul>
+        <li>计算每个请求的 <code>prefix_lens</code> 与 <code>extend_lens</code>，只把 <code>fill_ids[len(prefix_indices):]</code> 放进 <code>input_ids</code>。</li>
+        <li>调用 <code>alloc_for_extend</code> 分配 request pool slot 与 KV cache 输出位置，并更新 req 级别 <code>kv_committed_len</code> / <code>kv_allocated_len</code>。</li>
+        <li>处理 <code>input_embeds</code>、position embedding override、多模态 <code>MultimodalInputs</code>、encoder-decoder 信息、Mamba tracking。</li>
+        <li>如果需要 logprob，会构造 <code>extend_input_logprob_token_ids</code>，用于计算输入 token 的 logprob。</li>
+      </ul>
+
+      <h3><code>prepare_for_decode</code>：decode 张量如何准备</h3>
+      <ul>
+        <li>把 <code>forward_mode</code> 设置为 <code>DECODE</code>，清理 prefill 阶段残留的 <code>input_embeds</code> 与 context parallel metadata。</li>
+        <li>对 penalties/orchestrator 累计输出 token，然后把上一轮 <code>output_ids</code> 作为本轮 <code>input_ids</code>。</li>
+        <li>调用 <code>alloc_for_decode(token_per_req=1)</code> 为每个请求追加一个 KV cache 位置。</li>
+        <li>更新 <code>seq_lens</code>、<code>orig_seq_lens</code>、<code>seq_lens_sum</code>，overlap 模式避免 in-place 更新以减少并发风险。</li>
+      </ul>
+
+      <h3><code>ModelRunner._forward_raw</code> 的实际分支</h3>
+      <table>
+        <thead><tr><th>分支</th><th>逻辑</th><th>输出</th></tr></thead>
+        <tbody>
+          <tr><td>CUDA graph replay</td><td>decode 模式且 <code>graph_runner.can_run(forward_batch)</code> 时直接 replay，跳过 Python/Kernel launch 的一部分开销。</td><td><code>ModelRunnerOutput(logits_output, can_run_graph=True)</code></td></tr>
+          <tr><td><code>forward_decode</code></td><td>初始化 decode attention metadata，调用 <code>model.forward(input_ids, positions, forward_batch)</code>。</td><td>当前 token 位置的 logits。</td></tr>
+          <tr><td><code>forward_extend</code></td><td>处理 embeddings override，初始化 prefill attention metadata，可走 piecewise CUDA graph，然后调用模型。</td><td>prefill 后最后位置 logits、input logprob 所需 logits。</td></tr>
+          <tr><td><code>forward_split_prefill</code></td><td>多段 prefill 时维护 hidden/residual/model-specific states。</td><td>中间或最终 logits/hidden states。</td></tr>
+          <tr><td><code>forward_idle</code></td><td>DP attention padding batch 仍初始化 metadata 并调用模型。</td><td>用于同步的空/占位输出。</td></tr>
+        </tbody>
+      </table>
+
+      <p class="callout">模型类本身遵循统一签名：接收 <code>input_ids</code>、<code>positions</code>、<code>ForwardBatch</code> 以及可选 PP/input embedding 参数；具体 attention backend、KV cache 位置、LoRA、多模态信息都通过 <code>ForwardBatch</code> 传入。</p>
+    </section>
+
+    <section id="kv-animation" class="card">
+      <h2>前向推理与 KV Cache 动画</h2>
+      <p>下面这个动画把一次典型生成拆成 4 个循环阶段：先 prefill 整段 prompt，把每个 token 的 key/value 写入 KV cache；随后进入 decode，每轮只输入最后一个 token，但会把它与缓存里的全部历史 K/V 一起参与 attention。</p>
+
+      <div class="anim-shell">
+        <div class="anim-board">
+          <div class="anim-grid"></div>
+          <div class="anim-stage">
+            <div class="lane">
+              <div class="lane-head">
+                <strong>请求序列</strong>
+                <span class="lane-tag">token stream</span>
+              </div>
+              <div class="token-row" id="anim-token-row">
+                <span class="token prompt" data-token="A">A</span>
+                <span class="token prompt" data-token="B">B</span>
+                <span class="token prompt" data-token="C">C</span>
+                <span class="token prompt" data-token="D">D</span>
+                <span class="token output" data-token="E">E</span>
+                <span class="token output" data-token="F">F</span>
+                <span class="token output" data-token="G">G</span>
+              </div>
+              <div class="mini-note" id="anim-input-note">当前输入：整段 prompt <code>A B C D</code>，执行 prefill。</div>
+            </div>
+
+            <div class="lane">
+              <div class="lane-head">
+                <strong>KV Cache 槽位</strong>
+                <span class="lane-tag">per token key/value</span>
+              </div>
+              <div class="cache-row" id="anim-cache-row">
+                <span class="cache-cell" data-slot="0">slot 0</span>
+                <span class="cache-cell" data-slot="1">slot 1</span>
+                <span class="cache-cell" data-slot="2">slot 2</span>
+                <span class="cache-cell" data-slot="3">slot 3</span>
+                <span class="cache-cell" data-slot="4">slot 4</span>
+                <span class="cache-cell" data-slot="5">slot 5</span>
+                <span class="cache-cell" data-slot="6">slot 6</span>
+              </div>
+              <div class="mini-note" id="anim-cache-note">Prefill 结束后，prompt 每个 token 都有一份 K/V 常驻在显存池里。</div>
+            </div>
+
+            <div class="kv-flow">
+              <div class="kv-box">
+                <div class="lane-head">
+                  <strong>本轮 Query</strong>
+                  <span class="lane-tag">Q</span>
+                </div>
+                <div class="cache-row" id="anim-query-row">
+                  <span class="cache-cell small">A</span>
+                  <span class="cache-cell small">B</span>
+                  <span class="cache-cell small">C</span>
+                  <span class="cache-cell small">D</span>
+                </div>
+                <div class="mini-note" id="anim-query-note">Prefill 中会为整段输入同时计算 Q/K/V。</div>
+              </div>
+
+              <div class="kv-arrow" aria-hidden="true"></div>
+
+              <div class="kv-box">
+                <div class="lane-head">
+                  <strong>Attention 读取的 K/V</strong>
+                  <span class="lane-tag">K/V read</span>
+                </div>
+                <div class="cache-row" id="anim-read-row">
+                  <span class="cache-cell small">A</span>
+                  <span class="cache-cell small">B</span>
+                  <span class="cache-cell small">C</span>
+                  <span class="cache-cell small">D</span>
+                </div>
+                <div class="mini-note" id="anim-read-note">Decode 时只新算当前 token 的 Q/K/V，其余历史 K/V 直接从 cache 读取。</div>
+              </div>
+            </div>
+          </div>
+          <div class="anim-controls" data-player-controls="kv">
+            <button class="control-btn" type="button" data-action="prev">Prev</button>
+            <button class="control-btn" type="button" data-action="toggle" aria-pressed="true">Pause</button>
+            <button class="control-btn" type="button" data-action="next">Next</button>
+            <button class="control-btn" type="button" data-action="reset">Reset</button>
+          </div>
+        </div>
+
+        <div class="anim-side">
+          <div class="phase-card">
+            <div class="phase-title">
+              <strong id="anim-phase-title">Phase 1 · Prefill</strong>
+              <span class="phase-index" id="anim-phase-index">1/4</span>
+            </div>
+            <p class="phase-text" id="anim-phase-text">模型拿到整个 prompt，做一次 extend/prefill forward。此时 attention 需要真实计算全部 token 的 Q/K/V，并把 K/V 写入缓存。</p>
+            <div class="phase-progress">
+              <div class="phase-dots" id="anim-phase-dots">
+                <span class="phase-dot active"></span>
+                <span class="phase-dot"></span>
+                <span class="phase-dot"></span>
+                <span class="phase-dot"></span>
+              </div>
+              <div class="phase-bar"><div class="phase-bar-fill" id="anim-phase-bar"></div></div>
+            </div>
+          </div>
+
+          <div class="legend-card">
+            <strong>图例</strong>
+            <div class="legend">
+              <div class="legend-item"><span class="swatch prompt"></span> 蓝色：prompt token，本轮可能被整体 prefill。</div>
+              <div class="legend-item"><span class="swatch reused"></span> 绿色：历史 K/V 被直接复用，没有重算。</div>
+              <div class="legend-item"><span class="swatch new"></span> 金色：当前轮新写入的 K/V 槽位。</div>
+              <div class="legend-item"><span class="swatch output"></span> 青色：decode 新生成 token，会在下一轮成为历史上下文。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stack-note">
+        <p class="callout">KV cache 的本质是“把每个历史 token 的 K/V 张量存起来”。下一轮 decode 不再重新前向整个前缀，而是只为最新 token 计算一次 Q/K/V，然后用新 Q 去和缓存里的所有历史 K/V 做 attention。</p>
+        <p class="callout warn">因此 decode 的复杂度没有降到常数。单轮仍要读取越来越长的历史 K/V，但避免了“每轮重算整个前缀”的巨大重复计算，这就是大模型自回归推理必须依赖 KV cache 的原因。</p>
+      </div>
+
+      <h3>把动画映射回 SGLang 代码</h3>
+      <ul>
+        <li><code>prepare_for_extend</code> 会根据 <code>prefix_indices</code> 只把未命中的后缀 token 送入 prefill，同时分配 <code>out_cache_loc</code>，把新算出的 K/V 写进 KV pool。</li>
+        <li><code>prepare_for_decode</code> 每轮只把上一轮输出 token 作为新的 <code>input_ids</code>，再通过 <code>alloc_for_decode(token_per_req=1)</code> 追加一个 cache 槽位。</li>
+        <li><code>ForwardBatch</code> 持有 <code>req_pool_indices</code>、<code>seq_lens</code>、<code>out_cache_loc</code> 等信息，attention backend 正是靠这些索引在 KV pool 中定位历史 token。</li>
+        <li><code>check_decode_mem</code> / <code>retract_decode</code> 说明 KV cache 是一个有容量上限的池；放不下新 token 时，scheduler 必须回收或撤回部分请求。</li>
+      </ul>
+
+      <h3>Radix Cache 动画</h3>
+      <p>KV cache 解决“重复 decode 前缀”的问题，radix cache 解决“不同请求之间共享公共前缀”的问题。SGLang 把已经算过的前缀组织成前缀树，新的请求会先在树上找最长匹配前缀，只对未命中的后缀做 prefill。</p>
+
+      <div class="radix-shell">
+        <div class="radix-board">
+          <div class="anim-grid"></div>
+          <div class="radix-layout">
+            <div class="radix-tree">
+              <svg class="tree-svg" viewBox="0 0 1000 260" preserveAspectRatio="none" aria-hidden="true">
+                <path class="tree-path" data-path="p0" d="M500 44 L170 110" />
+                <path class="tree-path" data-path="p1" d="M500 44 L430 110" />
+                <path class="tree-path" data-path="p2" d="M500 44 L690 110" />
+                <path class="tree-path" data-path="p3" d="M170 128 L300 186" />
+                <path class="tree-path" data-path="p4" d="M690 128 L590 186" />
+              </svg>
+              <div class="tree-node root" data-node="root">ROOT</div>
+              <div class="tree-node n1" data-node="sys">SYS</div>
+              <div class="tree-node n2" data-node="usr">USR</div>
+              <div class="tree-node n3" data-node="tool">TOOL</div>
+              <div class="tree-node n4" data-node="question">Q?</div>
+              <div class="tree-node n5" data-node="json">JSON</div>
+            </div>
+
+            <div class="radix-request">
+              <div class="lane-head">
+                <strong>新请求 token 序列</strong>
+                <span class="lane-tag">prefix match</span>
+              </div>
+              <div class="request-strip" id="radix-request-row">
+                <span class="request-token">SYS</span>
+                <span class="request-token">USR</span>
+                <span class="request-token">Q?</span>
+                <span class="request-token">MORE</span>
+              </div>
+              <div class="mini-note" id="radix-request-note">请求先沿着 radix tree 做最长前缀匹配。</div>
+
+              <div class="lane-head" style="margin-top: 14px;">
+                <strong>需要真正 prefill 的后缀</strong>
+                <span class="lane-tag">uncached suffix</span>
+              </div>
+              <div class="suffix-strip" id="radix-suffix-row">
+                <span class="request-token suffix">MORE</span>
+              </div>
+              <div class="radix-metrics">
+                <div class="metric-box">
+                  <strong id="radix-hit-len">0</strong>
+                  <span>命中前缀 token</span>
+                </div>
+                <div class="metric-box">
+                  <strong id="radix-prefill-len">4</strong>
+                  <span>本轮需 prefill</span>
+                </div>
+                <div class="metric-box">
+                  <strong id="radix-benefit">0%</strong>
+                  <span>prefill 节省比例</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="anim-controls" data-player-controls="radix">
+            <button class="control-btn" type="button" data-action="prev">Prev</button>
+            <button class="control-btn" type="button" data-action="toggle" aria-pressed="true">Pause</button>
+            <button class="control-btn" type="button" data-action="next">Next</button>
+            <button class="control-btn" type="button" data-action="reset">Reset</button>
+          </div>
+        </div>
+
+        <div class="anim-side">
+          <div class="phase-card">
+            <div class="phase-title">
+              <strong id="radix-phase-title">Phase 1 · Empty Match</strong>
+              <span class="phase-index" id="radix-phase-index">1/4</span>
+            </div>
+            <p class="phase-text" id="radix-phase-text">如果树里还没有任何可复用前缀，就只能完整 prefill 整段请求。</p>
+            <div class="phase-progress">
+              <div class="phase-dots" id="radix-phase-dots">
+                <span class="phase-dot active"></span>
+                <span class="phase-dot"></span>
+                <span class="phase-dot"></span>
+                <span class="phase-dot"></span>
+              </div>
+              <div class="phase-bar"><div class="phase-bar-fill" id="radix-phase-bar"></div></div>
+            </div>
+          </div>
+
+          <div class="legend-card">
+            <strong>Radix Cache 关键点</strong>
+            <div class="legend">
+              <div class="legend-item"><span class="swatch prompt"></span> 命中的前缀 token 不需要再次 prefill。</div>
+              <div class="legend-item"><span class="swatch new"></span> 金色后缀表示本轮真正进入模型 forward 的 token。</div>
+              <div class="legend-item"><span class="swatch reused"></span> 绿色路径表示已缓存的树节点和对应前缀可直接复用。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stack-note">
+        <p class="callout">在 SGLang 里，radix cache 不是替代 KV cache，而是建立在它之上的“跨请求前缀复用层”。命中前缀后，Scheduler 会把已缓存前缀映射成 <code>prefix_indices</code>，<code>prepare_for_extend</code> 只把后缀 token 放进 <code>input_ids</code>。</p>
+        <p class="callout warn">命中越长，TTFT 越低，prefill FLOPs 越少。但一旦请求分叉到不同后缀，分叉之后的 token 仍要正常 prefill，并在 KV pool 中分配新的 cache 位置。</p>
+      </div>
+    </section>
+
+    <section id="return" class="card">
+      <h2>回传路径：Token IDs 到 HTTP 响应</h2>
+      <div class="flow">
+        <div class="step"><div class="num">1</div><div><h3>Detokenizer 接收</h3><p><code>DetokenizerManager.event_loop</code> 从 scheduler 接收 <code>BatchTokenIDOutput</code>，通过 dispatcher 调用 <code>handle_batch_token_id_out</code>。</p></div></div>
+        <div class="step"><div class="num">2</div><div><h3>增量 decode</h3><p><code>_decode_batch_token_id_output</code> 维护每个 rid 的 <code>DecodeStatus</code>，处理 UTF-8 边界、stop trim、batch decode，并得到 text delta。</p></div></div>
+        <div class="step"><div class="num">3</div><div><h3>返回 TokenizerManager</h3><p>Detokenizer 构造 <code>BatchStrOutput</code>，通过 tokenizer IPC socket 发回主进程。</p></div></div>
+        <div class="step"><div class="num">4</div><div><h3>唤醒等待协程</h3><p><code>TokenizerManager.handle_loop</code> 收到 <code>BatchStrOutput</code> 后调用 <code>_handle_batch_output</code>，更新 <code>ReqState.out_list</code>，设置 <code>state.event</code>。</p></div></div>
+        <div class="step"><div class="num">5</div><div><h3>HTTP 层 yield</h3><p><code>_wait_one_response</code> 被唤醒后 yield chunk 或最终结果；FastAPI 将其编码为 JSON 响应或 SSE 数据帧。</p></div></div>
+      </div>
+    </section>
+
+    <section id="streaming" class="grid">
+      <div class="card span-6">
+        <h2>流式请求</h2>
+        <ul>
+          <li>Native <code>/generate</code> 返回 <code>StreamingResponse</code>，每次输出 <code>data: {json}\n\n</code>，最后输出 <code>data: [DONE]</code>。</li>
+          <li>OpenAI chat/completions 会把内部 chunk 重新包装为 OpenAI SSE chunk。</li>
+          <li>若开启 <code>incremental_streaming_output</code>，<code>text</code> 和 <code>output_ids</code> 是 delta；否则需要按 offset 切出新增文本。</li>
+          <li>断连时后台 abort task 或 <code>request.is_disconnected()</code> 会触发 abort。</li>
+        </ul>
+      </div>
+      <div class="card span-6">
+        <h2>非流式请求</h2>
+        <ul>
+          <li>HTTP handler 只取 <code>generate_request(...).__anext__()</code>。</li>
+          <li><code>_wait_one_response</code> 在非流式模式下忽略中间 chunk，直到 <code>finished=true</code>。</li>
+          <li>最终响应包含完整 <code>text</code>、<code>output_ids</code> 与 <code>meta_info</code>。</li>
+          <li>OpenAI wrapper 再把内部结果转成 <code>ChatCompletionResponse</code> 或 <code>CompletionResponse</code>。</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Native 与 OpenAI 路径差异</h2>
+      <table>
+        <thead><tr><th>阶段</th><th>Native <code>/generate</code></th><th>OpenAI <code>/v1/chat/completions</code></th></tr></thead>
+        <tbody>
+          <tr><td>入口对象</td><td>FastAPI 直接解析为 <code>GenerateReqInput</code></td><td>解析为 <code>ChatCompletionRequest</code></td></tr>
+          <tr><td>Prompt 构造</td><td>用户直接提供 <code>text</code> / <code>input_ids</code> / 多模态字段</td><td>messages 经 chat template、tool/reasoning、多模态处理后生成 prompt</td></tr>
+          <tr><td>采样参数</td><td>内部 <code>sampling_params</code></td><td>OpenAI 字段转为内部 sampling params</td></tr>
+          <tr><td>引擎入口</td><td colspan="2">最终都调用 <code>tokenizer_manager.generate_request(adapted_request, raw_request)</code></td></tr>
+          <tr><td>响应格式</td><td>SGLang 原生 JSON/SSE</td><td>OpenAI-compatible JSON/SSE response schema</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>关键数据结构</h2>
+      <table>
+        <thead><tr><th>结构</th><th>出现位置</th><th>作用</th></tr></thead>
+        <tbody>
+          <tr><td><code>GenerateReqInput</code></td><td>HTTP/OpenAI → TokenizerManager</td><td>内部统一生成请求，携带文本/ids、多模态、sampling、stream、LoRA、priority 等。</td></tr>
+          <tr><td><code>TokenizedGenerateReqInput</code></td><td>TokenizerManager → Scheduler</td><td>tokenize 后的请求，scheduler 可以直接构造 <code>Req</code>。</td></tr>
+          <tr><td><code>Req</code></td><td>Scheduler 内部</td><td>调度单元，记录 origin input ids、output ids、finish reason、cache/pool 状态。</td></tr>
+          <tr><td><code>ScheduleBatch</code></td><td>Scheduler → ModelWorker</td><td>一次 prefill/decode forward 的批处理载体。</td></tr>
+          <tr><td><code>BatchTokenIDOutput</code></td><td>Scheduler → Detokenizer</td><td>模型输出的 token ids 与元信息。</td></tr>
+          <tr><td><code>BatchStrOutput</code></td><td>Detokenizer → TokenizerManager</td><td>decode 后的文本 delta/完整文本与元信息。</td></tr>
+          <tr><td><code>ReqState</code></td><td>TokenizerManager 内部</td><td>HTTP 协程等待的状态对象，含 event、out_list、finished、累计文本和 output_ids。</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>异常、取消与控制点</h2>
+      <ul>
+        <li><strong>请求断连：</strong><code>_wait_one_response</code> 周期性检查 <code>request.is_disconnected()</code>，必要时调用 abort。</li>
+        <li><strong>流式取消：</strong><code>StreamingResponse</code> 挂载 <code>create_abort_task</code>，客户端断开时通知 scheduler。</li>
+        <li><strong>输入过长：</strong>Scheduler <code>validate_input_length</code> 失败时把请求标记为 abort，再走正常输出链路返回错误。</li>
+        <li><strong>服务暂停：</strong>TokenizerManager 在 <code>is_pause_cond</code> 上等待，暂停期间不继续向 scheduler 派发新请求。</li>
+        <li><strong>模型更新：</strong><code>model_update_lock.reader_lock</code> 保护生成请求与权重/LoRA 更新互斥。</li>
+      </ul>
+    </section>
+
+    <section id="refs" class="card">
+      <h2>关键源码索引</h2>
+      <ul class="refs">
+        <li><code>python/sglang/srt/entrypoints/http_server.py:700</code>：原生 <code>/generate</code> 路由与流式/非流式响应。</li>
+        <li><code>python/sglang/srt/entrypoints/http_server.py:1483</code>：OpenAI <code>/v1/completions</code> 与 <code>/v1/chat/completions</code> 路由。</li>
+        <li><code>python/sglang/srt/entrypoints/openai/serving_base.py:73</code>：OpenAI 公共处理模板：校验、转换、选择 streaming/non-streaming。</li>
+        <li><code>python/sglang/srt/entrypoints/openai/serving_chat.py:371</code>：ChatCompletion 转内部 <code>GenerateReqInput</code>。</li>
+        <li><code>python/sglang/srt/entrypoints/openai/serving_completions.py:69</code>：Completion 转内部 <code>GenerateReqInput</code>。</li>
+        <li><code>python/sglang/srt/managers/tokenizer_manager.py:516</code>：<code>TokenizerManager.generate_request</code> 主流程。</li>
+        <li><code>python/sglang/srt/managers/tokenizer_manager.py:701</code>：单请求 tokenize 与多模态预处理。</li>
+        <li><code>python/sglang/srt/managers/tokenizer_manager.py:1176</code>：发送 tokenized 请求到 scheduler。</li>
+        <li><code>python/sglang/srt/managers/tokenizer_manager.py:1278</code>：等待单请求响应并 yield。</li>
+        <li><code>python/sglang/srt/managers/tokenizer_manager.py:1638</code>：接收 detokenizer/scheduler 输出的主循环。</li>
+        <li><code>python/sglang/srt/managers/scheduler.py:1537</code>：普通 scheduler event loop。</li>
+        <li><code>python/sglang/srt/managers/scheduler.py:1656</code>：从 tokenizer/rpc socket 接收请求。</li>
+        <li><code>python/sglang/srt/managers/scheduler.py:1842</code>：请求分发与输入处理。</li>
+        <li><code>python/sglang/srt/managers/scheduler.py:1979</code>：<code>TokenizedGenerateReqInput</code> 转 <code>Req</code>。</li>
+        <li><code>python/sglang/srt/managers/scheduler.py:2233</code>：请求进入 waiting/disaggregation 队列。</li>
+        <li><code>python/sglang/srt/managers/scheduler.py:2474</code>：选择下一批可执行 batch。</li>
+        <li><code>python/sglang/srt/managers/scheduler.py:2985</code>：执行 batch forward。</li>
+
+        <li><code>python/sglang/srt/managers/scheduler_output_processor_mixin.py:181</code>：prefill batch 结果处理、首 token 写入、cache/logprob/grammar 更新。</li>
+        <li><code>python/sglang/srt/managers/scheduler_output_processor_mixin.py:468</code>：decode batch 结果处理、输出 token 追加、结束释放 KV cache。</li>
+        <li><code>python/sglang/srt/managers/scheduler_output_processor_mixin.py:996</code>：<code>stream_output</code> 将请求输出封装为 scheduler → detokenizer 消息。</li>
+        <li><code>python/sglang/srt/managers/tp_worker.py:447</code>：<code>TpModelWorker.forward_batch_generation</code> 构造 <code>ForwardBatch</code> 并调用 <code>ModelRunner</code>。</li>
+        <li><code>python/sglang/srt/model_executor/forward_batch_info.py:444</code>：<code>ForwardBatch.init_new</code> 从 worker batch 构建模型 forward 输入。</li>
+        <li><code>python/sglang/srt/model_executor/model_runner.py:3246</code>：<code>ModelRunner.forward</code> 的 profiler/capture/elastic EP 包装层。</li>
+        <li><code>python/sglang/srt/model_executor/model_runner.py:3326</code>：<code>_forward_raw</code> 的 CUDA graph、decode、extend、split prefill 分支。</li>
+        <li><code>python/sglang/srt/model_executor/model_runner.py:3439</code>：<code>sample</code> 对 logits 应用约束并采样 next token。</li>
+        <li><code>python/sglang/srt/managers/schedule_batch.py:1690</code>：<code>prepare_for_extend</code> 准备 prefill 输入、KV 分配与 prefix cache 统计。</li>
+        <li><code>python/sglang/srt/managers/schedule_batch.py:2282</code>：<code>prepare_for_decode</code> 准备 decode 输入并为每请求追加 KV slot。</li>
+        <li><code>python/sglang/srt/managers/detokenizer_manager.py:75</code>：DetokenizerManager 定义与 IPC 初始化。</li>
+        <li><code>python/sglang/srt/managers/detokenizer_manager.py:344</code>：token ids 转 <code>BatchStrOutput</code>。</li>
+        <li><code>python/sglang/srt/managers/detokenizer_manager.py:415</code>：detokenizer 子进程入口。</li>
+      </ul>
+    </section>
+  </main>
+  <script>
+    (function () {
+      function setFlash(node) {
+        if (!node) return;
+        node.classList.remove("flash");
+        void node.offsetWidth;
+        node.classList.add("flash");
+      }
+
+      function createPlayer(config) {
+        if (!config || !config.phases || config.phases.length === 0) return null;
+        let current = 0;
+        let timer = null;
+        let playing = true;
+
+        function render(index) {
+          current = (index + config.phases.length) % config.phases.length;
+          config.render(config.phases[current], current, config.phases.length);
+          if (config.controls && config.controls.toggle) {
+            config.controls.toggle.textContent = playing ? "Pause" : "Play";
+            config.controls.toggle.setAttribute("aria-pressed", playing ? "true" : "false");
+          }
+        }
+
+        function start() {
+          if (timer) window.clearInterval(timer);
+          if (!playing) return;
+          timer = window.setInterval(() => {
+            render(current + 1);
+          }, config.interval || 2400);
+        }
+
+        function setPlaying(nextPlaying) {
+          playing = nextPlaying;
+          start();
+          render(current);
+        }
+
+        if (config.controls) {
+          config.controls.prev.addEventListener("click", () => {
+            render(current - 1);
+          });
+          config.controls.next.addEventListener("click", () => {
+            render(current + 1);
+          });
+          config.controls.reset.addEventListener("click", () => {
+            render(0);
+          });
+          config.controls.toggle.addEventListener("click", () => {
+            setPlaying(!playing);
+          });
+        }
+
+        render(0);
+        start();
+        return { render, setPlaying };
+      }
+
+      const phaseTitle = document.getElementById("anim-phase-title");
+      const phaseIndex = document.getElementById("anim-phase-index");
+      const phaseText = document.getElementById("anim-phase-text");
+      const phaseBar = document.getElementById("anim-phase-bar");
+      const phaseDots = Array.from(document.querySelectorAll("#anim-phase-dots .phase-dot"));
+      const tokens = Array.from(document.querySelectorAll("#anim-token-row .token"));
+      const cacheCells = Array.from(document.querySelectorAll("#anim-cache-row .cache-cell"));
+      const queryRow = document.getElementById("anim-query-row");
+      const readRow = document.getElementById("anim-read-row");
+      const inputNote = document.getElementById("anim-input-note");
+      const cacheNote = document.getElementById("anim-cache-note");
+      const queryNote = document.getElementById("anim-query-note");
+      const readNote = document.getElementById("anim-read-note");
+      const kvControlsRoot = document.querySelector('[data-player-controls="kv"]');
+
+      function fillRow(container, values, filledClass) {
+        container.innerHTML = "";
+        values.forEach((value) => {
+          const span = document.createElement("span");
+          span.className = "cache-cell small" + (value !== "-" ? " " + filledClass : "");
+          span.textContent = value;
+          container.appendChild(span);
+        });
+      }
+
+      const kvPhases = [
+        {
+          title: "Phase 1 · Prefill",
+          index: "1/4",
+          text: "模型拿到整个 prompt，做一次 extend/prefill forward。此时 attention 需要真实计算全部 token 的 Q/K/V，并把 K/V 写入缓存。",
+          inputNote: "当前输入：整段 prompt <code>A B C D</code>，执行 prefill。",
+          cacheNote: "Prompt 的 4 个 token 首次写入 KV cache。后面 decode 不再重算它们的 K/V。",
+          queryNote: "Prefill 中会为整段输入同时计算 Q/K/V。",
+          readNote: "当前没有历史 cache 可复用，因为这是第一次前向。",
+          tokenStates: ["active", "active", "active", "active", "", "", ""],
+          cacheStates: ["new", "new", "new", "new", "", "", ""],
+          queryTokens: ["A", "B", "C", "D"],
+          readTokens: ["-", "-", "-", "-"]
+        },
+        {
+          title: "Phase 2 · Decode Token E",
+          index: "2/4",
+          text: "第一轮 decode 只把上轮最后位置采样出的 token E 作为输入。模型只新算 E 的 Q/K/V，但 attention 会读取 A-D 的历史 K/V。",
+          inputNote: "当前输入：只输入最新 token <code>E</code>，不是把 <code>A B C D E</code> 全部再跑一遍。",
+          cacheNote: "A-D 的槽位被直接复用；本轮只新增 E 的 K/V 到 slot 4。",
+          queryNote: "Decode 中当前 Query 只来自 token E。",
+          readNote: "Attention 读取历史 A-D 的 K/V，再和 E 的 Q 结合得到下一 token logits。",
+          tokenStates: ["dimmed", "dimmed", "dimmed", "dimmed", "active", "", ""],
+          cacheStates: ["reused", "reused", "reused", "reused", "new", "", ""],
+          queryTokens: ["E"],
+          readTokens: ["A", "B", "C", "D"]
+        },
+        {
+          title: "Phase 3 · Decode Token F",
+          index: "3/4",
+          text: "第二轮 decode 输入 F。此时历史上下文已经扩展为 A-E，模型直接读取 5 份缓存的 K/V，只为 F 新增一份。",
+          inputNote: "当前输入：token <code>F</code>。",
+          cacheNote: "A-E 都是已缓存历史；本轮只把 F 的 K/V 写入 slot 5。",
+          queryNote: "Query 只来自 F。",
+          readNote: "读取的 K/V 长度继续增长，这就是 decode 阶段显存带宽压力持续上升的原因。",
+          tokenStates: ["dimmed", "dimmed", "dimmed", "dimmed", "dimmed", "active", ""],
+          cacheStates: ["reused", "reused", "reused", "reused", "reused", "new", ""],
+          queryTokens: ["F"],
+          readTokens: ["A", "B", "C", "D", "E"]
+        },
+        {
+          title: "Phase 4 · Decode Token G",
+          index: "4/4",
+          text: "第三轮 decode 输入 G。KV cache 继续线性增长。SGLang 的调度、分页 KV pool 和前缀缓存都在努力让这种增长可控且高吞吐。",
+          inputNote: "当前输入：token <code>G</code>。",
+          cacheNote: "A-F 为复用槽位；G 写入 slot 6。若池子不够，scheduler 会触发 retract 或回收。",
+          queryNote: "Query 只来自 G。",
+          readNote: "此时 attention 读取 A-F 的历史 K/V，生成下一 token 的 logits。",
+          tokenStates: ["dimmed", "dimmed", "dimmed", "dimmed", "dimmed", "dimmed", "active"],
+          cacheStates: ["reused", "reused", "reused", "reused", "reused", "reused", "new"],
+          queryTokens: ["G"],
+          readTokens: ["A", "B", "C", "D", "E", "F"]
+        }
+      ];
+
+      if (phaseTitle && kvControlsRoot) {
+        createPlayer({
+          interval: 2200,
+          phases: kvPhases,
+          controls: {
+            prev: kvControlsRoot.querySelector('[data-action="prev"]'),
+            next: kvControlsRoot.querySelector('[data-action="next"]'),
+            reset: kvControlsRoot.querySelector('[data-action="reset"]'),
+            toggle: kvControlsRoot.querySelector('[data-action="toggle"]')
+          },
+          render: function (phase, index, total) {
+            phaseTitle.textContent = phase.title;
+            phaseIndex.textContent = phase.index;
+            phaseText.textContent = phase.text;
+            phaseBar.style.width = (((index + 1) / total) * 100).toFixed(0) + "%";
+            inputNote.innerHTML = phase.inputNote;
+            cacheNote.innerHTML = phase.cacheNote;
+            queryNote.innerHTML = phase.queryNote;
+            readNote.innerHTML = phase.readNote;
+
+            phaseDots.forEach((dot, dotIndex) => {
+              dot.classList.toggle("active", dotIndex === index);
+            });
+
+            tokens.forEach((token, tokenIndex) => {
+              token.classList.remove("active", "dimmed", "flash");
+              const state = phase.tokenStates[tokenIndex];
+              if (state) token.classList.add(state);
+              if (state === "active") setFlash(token);
+            });
+
+            cacheCells.forEach((cell, cellIndex) => {
+              cell.classList.remove("filled", "reused", "new", "flash");
+              const state = phase.cacheStates[cellIndex];
+              const token = tokens[cellIndex].dataset.token;
+              if (state) {
+                cell.classList.add("filled", state);
+                cell.textContent = token;
+                setFlash(cell);
+              } else {
+                cell.textContent = "slot " + cellIndex;
+              }
+            });
+
+            fillRow(queryRow, phase.queryTokens, "new");
+            fillRow(readRow, phase.readTokens, "reused");
+          }
+        });
+      }
+
+      const radixPhaseTitle = document.getElementById("radix-phase-title");
+      const radixPhaseIndex = document.getElementById("radix-phase-index");
+      const radixPhaseText = document.getElementById("radix-phase-text");
+      const radixPhaseBar = document.getElementById("radix-phase-bar");
+      const radixPhaseDots = Array.from(document.querySelectorAll("#radix-phase-dots .phase-dot"));
+      const radixRequestRow = document.getElementById("radix-request-row");
+      const radixSuffixRow = document.getElementById("radix-suffix-row");
+      const radixRequestNote = document.getElementById("radix-request-note");
+      const radixHitLen = document.getElementById("radix-hit-len");
+      const radixPrefillLen = document.getElementById("radix-prefill-len");
+      const radixBenefit = document.getElementById("radix-benefit");
+      const radixNodes = Array.from(document.querySelectorAll(".tree-node[data-node]"));
+      const radixPaths = Array.from(document.querySelectorAll(".tree-path[data-path]"));
+      const radixControlsRoot = document.querySelector('[data-player-controls="radix"]');
+
+      const radixPhases = [
+        {
+          title: "Phase 1 · Empty Match",
+          index: "1/4",
+          text: "如果树里还没有任何可复用前缀，就只能完整 prefill 整段请求。",
+          requestNote: "请求进入时，radix tree 没有命中的缓存路径。",
+          requestTokens: [
+            { text: "SYS", state: "suffix active" },
+            { text: "USR", state: "suffix active" },
+            { text: "Q?", state: "suffix active" },
+            { text: "MORE", state: "suffix active" }
+          ],
+          suffixTokens: ["SYS", "USR", "Q?", "MORE"],
+          activeNodes: [],
+          hitNodes: [],
+          activePaths: [],
+          hitPaths: [],
+          hitLen: "0",
+          prefillLen: "4",
+          benefit: "0%"
+        },
+        {
+          title: "Phase 2 · Match SYS → USR",
+          index: "2/4",
+          text: "树里已经缓存了公共系统提示和用户前缀。Scheduler 找到最长匹配前缀后，不再重算这两段 token。",
+          requestNote: "新请求沿着 ROOT → SYS → USR 命中两层前缀。",
+          requestTokens: [
+            { text: "SYS", state: "hit active" },
+            { text: "USR", state: "hit active" },
+            { text: "Q?", state: "suffix" },
+            { text: "MORE", state: "suffix" }
+          ],
+          suffixTokens: ["Q?", "MORE"],
+          activeNodes: ["root", "sys", "usr"],
+          hitNodes: ["root", "sys", "usr"],
+          activePaths: ["p0", "p1"],
+          hitPaths: ["p0", "p1"],
+          hitLen: "2",
+          prefillLen: "2",
+          benefit: "50%"
+        },
+        {
+          title: "Phase 3 · Match ROOT → SYS → USR → Q?",
+          index: "3/4",
+          text: "如果问句前半段也命中，真正要 prefill 的只剩最后分叉的后缀。SGLang 会把命中的前缀映射成 prefix indices。",
+          requestNote: "命中到叶子 <code>Q?</code>，只剩未见过的后缀 token。",
+          requestTokens: [
+            { text: "SYS", state: "hit" },
+            { text: "USR", state: "hit" },
+            { text: "Q?", state: "hit active" },
+            { text: "MORE", state: "suffix active" }
+          ],
+          suffixTokens: ["MORE"],
+          activeNodes: ["root", "sys", "question"],
+          hitNodes: ["root", "sys", "question"],
+          activePaths: ["p0", "p3"],
+          hitPaths: ["p0", "p3"],
+          hitLen: "3",
+          prefillLen: "1",
+          benefit: "75%"
+        },
+        {
+          title: "Phase 4 · Insert New Branch",
+          index: "4/4",
+          text: "后缀 prefill 完成后，新的路径会被插入 radix tree。之后再来相同前缀的请求，就能复用更长的上下文。",
+          requestNote: "本轮只 prefill <code>MORE</code>，结束后树中会新增更深的分叉节点。",
+          requestTokens: [
+            { text: "SYS", state: "hit dimmed" },
+            { text: "USR", state: "hit dimmed" },
+            { text: "Q?", state: "hit dimmed" },
+            { text: "MORE", state: "suffix active" }
+          ],
+          suffixTokens: ["MORE"],
+          activeNodes: ["root", "sys", "question"],
+          hitNodes: ["root", "sys", "question"],
+          activePaths: ["p0", "p3"],
+          hitPaths: ["p0", "p3"],
+          hitLen: "3",
+          prefillLen: "1",
+          benefit: "75%"
+        }
+      ];
+
+      function fillRequestRow(container, tokenDefs) {
+        container.innerHTML = "";
+        tokenDefs.forEach((tokenDef) => {
+          const span = document.createElement("span");
+          span.className = "request-token";
+          tokenDef.state.split(" ").filter(Boolean).forEach((name) => span.classList.add(name));
+          span.textContent = tokenDef.text;
+          container.appendChild(span);
+          if (tokenDef.state.indexOf("active") >= 0) setFlash(span);
+        });
+      }
+
+      function fillSuffixRow(container, values) {
+        container.innerHTML = "";
+        values.forEach((value) => {
+          const span = document.createElement("span");
+          span.className = "request-token suffix";
+          span.textContent = value;
+          container.appendChild(span);
+        });
+      }
+
+      if (radixPhaseTitle && radixControlsRoot) {
+        createPlayer({
+          interval: 2500,
+          phases: radixPhases,
+          controls: {
+            prev: radixControlsRoot.querySelector('[data-action="prev"]'),
+            next: radixControlsRoot.querySelector('[data-action="next"]'),
+            reset: radixControlsRoot.querySelector('[data-action="reset"]'),
+            toggle: radixControlsRoot.querySelector('[data-action="toggle"]')
+          },
+          render: function (phase, index, total) {
+            radixPhaseTitle.textContent = phase.title;
+            radixPhaseIndex.textContent = phase.index;
+            radixPhaseText.textContent = phase.text;
+            radixPhaseBar.style.width = (((index + 1) / total) * 100).toFixed(0) + "%";
+            radixRequestNote.innerHTML = phase.requestNote;
+            radixHitLen.textContent = phase.hitLen;
+            radixPrefillLen.textContent = phase.prefillLen;
+            radixBenefit.textContent = phase.benefit;
+
+            radixPhaseDots.forEach((dot, dotIndex) => {
+              dot.classList.toggle("active", dotIndex === index);
+            });
+
+            fillRequestRow(radixRequestRow, phase.requestTokens);
+            fillSuffixRow(radixSuffixRow, phase.suffixTokens);
+
+            radixNodes.forEach((node) => {
+              node.classList.remove("active", "hit", "dimmed", "flash");
+              const key = node.getAttribute("data-node");
+              if (phase.hitNodes.indexOf(key) >= 0) node.classList.add("hit");
+              if (phase.activeNodes.indexOf(key) >= 0) {
+                node.classList.add("active");
+                setFlash(node);
+              }
+              if (phase.hitNodes.length > 0 && phase.hitNodes.indexOf(key) < 0) node.classList.add("dimmed");
+            });
+
+            radixPaths.forEach((path) => {
+              path.classList.remove("active", "hit");
+              const key = path.getAttribute("data-path");
+              if (phase.hitPaths.indexOf(key) >= 0) path.classList.add("hit");
+              if (phase.activePaths.indexOf(key) >= 0) path.classList.add("active");
+            });
+          }
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

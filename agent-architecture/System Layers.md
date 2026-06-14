@@ -177,6 +177,13 @@ graph TD
 
 ---
 
-**文档版本:** 1.0
-**最后更新:** 2025-03-23
-**相关文档:** [SPEC.md](SPEC.md) | [ARCHITECTURE.md](ARCHITECTURE.md)
+## Related
+
+* [[Multi Agent Isolation]]
+* [[Hermes Distributed Architecture]]
+* [[Agent Collaboration Patterns]]
+* [[Plugin Mechanism]]
+
+## Tags
+
+#agent-architecture #nanoclaw #system-layers

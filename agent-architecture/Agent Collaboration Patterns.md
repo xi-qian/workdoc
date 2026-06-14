@@ -144,9 +144,11 @@ graph TB
 
 - [[Multi Agent Isolation]]
 - [[System Layers]]
-- [[Clawith Analysis]]
+- [[Clawith Memory Analysis]]
 - [[Pairing Mechanism]]
 - [[Group Chat Memory Mechanism]]
+- [[Enterprise Agent Service Model]]
+- [[Hermes Distributed Architecture]]
 
 ## Tags
 

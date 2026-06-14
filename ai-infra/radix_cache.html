@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Radix Cache — 基数树前缀缓存详解</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f6f8fa;
+    --surface: #fff;
+    --border: #d5dae3;
+    --text: #374151;
+    --text-dim: #8b919e;
+    --text-bright: #111827;
+    --green: #059669;
+    --green-bg: rgba(5,150,105,0.06);
+    --purple: #7c3aed;
+    --purple-bg: rgba(124,58,237,0.06);
+    --red: #dc2626;
+    --red-bg: rgba(220,38,38,0.06);
+    --amber: #d97706;
+    --amber-bg: rgba(217,119,6,0.06);
+    --blue: #2563eb;
+    --blue-bg: rgba(37,99,235,0.06);
+    --pink: #db2777;
+    --pink-bg: rgba(219,39,119,0.06);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Noto Sans SC', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  /* Hero */
+  .hero {
+    text-align: center;
+    padding: 64px 32px 48px;
+    background: linear-gradient(180deg, rgba(5,150,105,0.04) 0%, transparent 100%);
+    border-bottom: 1px solid var(--border);
+  }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 2.2rem;
+    color: var(--text-bright);
+    font-weight: 700;
+  }
+  .hero h1 span { color: var(--green); }
+  .hero .subtitle {
+    color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.95rem;
+    margin-top: 10px;
+  }
+
+  .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+  /* Problem intro */
+  .intro {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin: 48px 0;
+  }
+  @media (max-width: 768px) { .intro { grid-template-columns: 1fr; } }
+
+  .intro-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 28px;
+  }
+  .intro-card.bad { border-left: 3px solid var(--red); }
+  .intro-card.good { border-left: 3px solid var(--green); }
+  .intro-card h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1rem;
+    margin-bottom: 12px;
+    color: var(--text-bright);
+  }
+  .intro-card p { font-size: 0.88rem; color: var(--text); line-height: 1.75; }
+  .intro-card code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    background: var(--bg);
+    padding: 2px 6px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+  }
+
+  /* Section */
+  .section { margin: 56px 0; }
+  .section-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text-bright);
+    margin-bottom: 20px;
+    padding-left: 14px;
+    border-left: 3px solid var(--green);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-title .num {
+    font-size: 0.75rem;
+    color: var(--green);
+    background: var(--green-bg);
+    padding: 2px 10px;
+    border-radius: 4px;
+  }
+
+  /* Interactive panel */
+  .interactive-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .panel-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0,0,0,0.015);
+  }
+  .panel-top .scenario-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82rem;
+    color: var(--text-dim);
+  }
+  .panel-top .scenario-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text-bright);
+  }
+  .step-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .step-controls button {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    padding: 6px 16px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .step-controls button:hover { background: var(--bg); border-color: var(--green); color: var(--green); }
+  .step-controls button:disabled { opacity: 0.4; cursor: default; }
+  .step-controls button:disabled:hover { border-color: var(--border); color: var(--text); background: var(--surface); }
+  .step-controls .step-indicator {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    min-width: 60px;
+    text-align: center;
+  }
+
+  .svg-stage {
+    padding: 24px;
+    overflow-x: auto;
+  }
+  .svg-stage svg { display: block; margin: 0 auto; }
+
+  .panel-description {
+    padding: 18px 24px;
+    border-top: 1px solid var(--border);
+    background: rgba(0,0,0,0.01);
+    font-size: 0.88rem;
+    color: var(--text);
+    line-height: 1.8;
+    min-height: 60px;
+  }
+  .panel-description strong { color: var(--text-bright); }
+  .panel-description .tag {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    padding: 1px 8px;
+    border-radius: 3px;
+    margin: 0 2px;
+  }
+  .tag.match { background: var(--blue-bg); color: var(--blue); }
+  .tag.insert { background: var(--green-bg); color: var(--green); }
+  .tag.evict { background: var(--red-bg); color: var(--red); }
+  .tag.lock { background: var(--purple-bg); color: var(--purple); }
+
+  /* Legend */
+  .legend-row {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    padding: 12px 24px;
+    border-top: 1px solid var(--border);
+    font-size: 0.78rem;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-dim);
+  }
+  .legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* KV pool visualization */
+  .kv-grid {
+    display: flex;
+    gap: 3px;
+    flex-wrap: wrap;
+    padding: 16px 24px;
+    min-height: 40px;
+  }
+  .kv-page {
+    width: 36px; height: 36px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    transition: all 0.3s;
+  }
+  .kv-page.used { background: var(--purple-bg); border-color: var(--purple); color: var(--purple); }
+  .kv-page.free { background: var(--bg); }
+  .kv-page.evicting { background: var(--red-bg); border-color: var(--red); color: var(--red); animation: pulse 0.6s ease-in-out 3; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  /* Explain cards */
+  .explain-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+  }
+  .explain-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+  }
+  .explain-card h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.9rem;
+    color: var(--text-bright);
+    margin-bottom: 8px;
+  }
+  .explain-card .api {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  .explain-card p { font-size: 0.85rem; line-height: 1.75; }
+
+  /* Memory pool diagram */
+  .pool-diagram {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 24px;
+    margin-top: 20px;
+  }
+  @media (max-width: 768px) { .pool-diagram { grid-template-columns: 1fr; } }
+
+  .pool-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px;
+    text-align: center;
+  }
+  .pool-card h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--text-bright);
+    margin-bottom: 6px;
+  }
+  .pool-card .path {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  .pool-card p { font-size: 0.82rem; line-height: 1.7; }
+
+  /* Footer */
+  .footer {
+    text-align: center;
+    padding: 40px 0 28px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    border-top: 1px solid var(--border);
+    margin-top: 48px;
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <h1>Radix<span>Cache</span></h1>
+  <p class="subtitle">基于基数树的前缀感知 KV 缓存管理系统</p>
+</header>
+
+<div class="container">
+
+<!-- ====== PROBLEM INTRO ====== -->
+<section class="intro">
+  <div class="intro-card bad">
+    <h3>❌ 无缓存：每次请求都重新计算</h3>
+    <p>两个用户发送<code>"You are a helpful assistant. "</code>作为系统提示。没有缓存时，每个请求都要从头计算完整的 Attention KV，产生<strong>重复计算</strong>和<strong>冗余显存占用</strong>。100 个用户 = 100 倍的系统提示 KV 缓存。</p>
+  </div>
+  <div class="intro-card good">
+    <h3>✅ RadixCache：共享公共前缀</h3>
+    <p>RadixCache 识别出两个请求的<strong>token 前缀相同</strong>，只计算一次 KV 并缓存。第二个请求直接复用已缓存的 KV 索引，跳过 Attention 计算，显存中<strong>只存一份系统提示的 KV</strong>。</p>
+  </div>
+</section>
+
+<!-- ====== INTERACTIVE DEMO ====== -->
+<section class="section">
+  <h2 class="section-title">
+    <span class="num">DEMO</span>
+    交互式演示：构建一棵 Radix Tree
+  </h2>
+  <div class="interactive-panel">
+    <div class="panel-top">
+      <div>
+        <span class="scenario-label">场景: </span>
+        <span class="scenario-name" id="scenarioName">三个请求共享前缀</span>
+      </div>
+      <div class="step-controls">
+        <button onclick="prevStep()" id="btnPrev">◀ 上一步</button>
+        <span class="step-indicator" id="stepIndicator">1 / 8</span>
+        <button onclick="nextStep()" id="btnNext">下一步 ▶</button>
+        <button onclick="resetDemo()" style="margin-left: 12px;">↺ 重置</button>
+      </div>
+    </div>
+    <div class="svg-stage" id="svgStage"></div>
+    <div class="panel-description" id="panelDesc"></div>
+    <div class="kv-grid" id="kvGrid"></div>
+    <div class="legend-row">
+      <div class="legend-item"><span class="legend-dot" style="background:var(--blue);"></span> 已匹配/复用</div>
+      <div class="legend-item"><span class="legend-dot" style="background:var(--green);"></span> 新插入</div>
+      <div class="legend-item"><span class="legend-dot" style="background:var(--purple);"></span> 活跃锁定 (lock_ref>0)</div>
+      <div class="legend-item"><span class="legend-dot" style="background:var(--red);"></span> 驱逐/释放</div>
+      <div class="legend-item"><span class="legend-dot" style="background:var(--amber);"></span> 可驱逐叶子</div>
+    </div>
+  </div>
+</section>
+
+<!-- ====== CORE OPERATIONS ====== -->
+<section class="section">
+  <h2 class="section-title">
+    <span class="num">API</span>
+    核心操作 (radix_cache.py)
+  </h2>
+  <div class="explain-grid">
+    <div class="explain-card">
+      <h4>match_prefix(key)</h4>
+      <div class="api">radix_cache.py:359</div>
+      <p>给定一个 token 序列 <code>key</code>，从根节点开始沿树向下遍历，找到 <strong>最长公共前缀</strong>。返回该前缀对应的所有 KV 缓存页索引的拼接张量。如果匹配结束在某个节点内部，会 <strong>split</strong> 该节点以暴露精确边界。同时刷新该路径上节点的访问时间戳（供 LRU/LFU 使用）。</p>
+    </div>
+    <div class="explain-card">
+      <h4>insert(key, value, priority)</h4>
+      <div class="api">radix_cache.py:418</div>
+      <p>将新的 token 序列及其对应的 KV 缓存页索引 <code>value</code> 插入树中。与已有节点共享前缀部分，<strong>只创建分叉后的新节点</strong>。返回实际新建的前缀长度。新插入的叶子节点被标记为 <code>evictable</code>，加入可驱逐集合。</p>
+    </div>
+    <div class="explain-card">
+      <h4>cache_finished_req(req)</h4>
+      <div class="api">radix_cache.py:438</div>
+      <p>请求完成后调用。取 <code>req.origin_input_ids + req.output_ids</code> 的完整 token 序列，连同 <code>req_to_token_pool</code> 中的 KV 缓存索引一起插入树中。<strong>释放重复的 KV 缓存页</strong>（树中已有相同前缀时），并对 <code>req.last_node</code> 执行 <code>dec_lock_ref</code> 解锁。</p>
+    </div>
+    <div class="explain-card">
+      <h4>evict(num_tokens)</h4>
+      <div class="api">radix_cache.py:558</div>
+      <p>当显存不足需要释放 <code>num_tokens</code> 个位置时调用。从所有 <code>evictable_leaves</code> 中按配置的驱逐策略（LRU/LFU/FIFO/MRU/SLRU/Priority）选择叶子节点，<strong>释放其 KV 缓存页 → 删除节点 → 递归清理空父节点</strong>。</p>
+    </div>
+    <div class="explain-card">
+      <h4>inc_lock_ref / dec_lock_ref(node)</h4>
+      <div class="api">radix_cache.py:587 / 602</div>
+      <p><strong>引用计数锁机制</strong>：正在被活跃请求使用的节点 <code>lock_ref > 0</code>，不可驱逐。当请求复用某个前缀节点时，对该节点及其所有祖先 <code>inc_lock_ref</code>；请求结束或转移前缀时 <code>dec_lock_ref</code>。lock_ref 降为 0 时节点重新变为可驱逐。</p>
+    </div>
+    <div class="explain-card">
+      <h4>cache_unfinished_req(req)</h4>
+      <div class="api">radix_cache.py:485</div>
+      <p>用于 <strong>chunked prefill</strong> 场景：超长序列被切成多块处理，每完成一块就将当前的 KV 缓存插入树中。这允许后续请求立即复用已处理的部分前缀，即使在原请求还未完成时。配合 <code>dec_lock_ref</code> / <code>inc_lock_ref</code> 更新活跃节点引用。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ====== MEMORY POOL ====== -->
+<section class="section">
+  <h2 class="section-title">
+    <span class="num">MEM</span>
+    内存池体系
+  </h2>
+  <div class="pool-diagram">
+    <div class="pool-card">
+      <h4>ReqToTokenPool</h4>
+      <div class="path">mem_cache/memory_pool.py:127</div>
+      <p>一个 <code>[max_reqs, max_context_len]</code> 的二维张量。<br>
+      通过 <code>req_pool_idx</code> 索引，每行存储该请求<strong>每个 token 位置对应的 KV 缓存页号</strong>。请求开始时 <code>alloc()</code>，结束或释放时 <code>free()</code>。</p>
+    </div>
+    <div class="pool-card">
+      <h4>TokenToKVPoolAllocator</h4>
+      <div class="path">mem_cache/allocator.py:121</div>
+      <p>管理一个<strong>空闲页号栈</strong>。RadixCache 调用 <code>alloc(num_pages)</code> 获取连续页号，<code>free(indices)</code> 归还。驱逐时释放的页号回到空闲池供后续请求使用。支持 page_size > 1 的对齐分配。</p>
+    </div>
+    <div class="pool-card">
+      <h4>MHATokenToKVPool</h4>
+      <div class="path">mem_cache/memory_pool.py:785</div>
+      <p>GPU 上的<strong>物理 KV 缓存张量</strong>。<br>
+      形状为 <code>[num_pages, page_size, num_heads, head_dim]</code>（MHA）或对应的 MLA 变体。RadixAttention 层通过页号索引直接读写这些张量，完成 KV 缓存的存储和查找。</p>
+    </div>
+  </div>
+</section>
+
+</div><!-- .container -->
+
+<footer class="footer">
+  SGLang RadixCache · radix_cache.py · 基数树前缀缓存
+</footer>
+
+<script>
+// ============ DEMO ENGINE ============
+
+// Data model: represents the radix tree state across steps
+const demoSteps = [];
+
+// Helper to build all steps
+function buildDemo() {
+  demoSteps.length = 0;
+
+  // Step 0: Empty tree
+  demoSteps.push({
+    title: '初始状态：空树',
+    desc: 'RadixCache 刚初始化，只有<strong>根节点 ROOT</strong>（lock_ref=1，永不被驱逐）。根节点不存储任何 token。底部的 KV 缓存页池全部空闲（灰色）。',
+    nodes: [{ id:'root', label:'ROOT', parent:null, edgeLabel:'', kvPages:[], color:'default', highlight:false }],
+    kvState: freeKV(16),
+    highlightKV: [],
+    kvAction: null,
+  });
+
+  // Step 1: Request A arrives — "You are a helpful assistant"
+  // match_prefix → empty (only root), insert full sequence
+  demoSteps.push({
+    title: '请求 A 到达: match_prefix("You are a helpful assistant") → 无匹配',
+    desc: '请求 A 发送系统提示 <strong>"You are a helpful assistant"</strong>（假设 6 个 token）。<span class="tag match">match_prefix</span> 从 ROOT 开始查找，但树中尚无任何数据，返回<strong>空匹配</strong>。GPU 需要完整计算这 6 个 token 的 Attention KV。',
+    nodes: [
+      { id:'root', label:'ROOT', parent:null, edgeLabel:'', kvPages:[], color:'default', highlight:true },
+      { id:'reqA-active', label:'Req A\n(活跃)', parent:'root', edgeLabel:'', kvPages:[], color:'purple', highlight:true, dashed:true },
+    ],
+    kvState: freeKV(16),
+    highlightKV: [],
+    kvAction: 'alloc-6',
+  });
+
+  // Step 2: Request A finishes → cache_finished_req
+  demoSteps.push({
+    title: '请求 A 完成: cache_finished_req() → 插入新节点',
+    desc: '请求 A 完成，调用 <span class="tag insert">cache_finished_req</span>。系统将 A 的完整 token 序列和对应的 KV 缓存页（<strong>页 0-5</strong>）插入树中，创建一条从 ROOT 到叶子节点的路径。叶子节点标记为 <span class="tag evict">evictable</span>（可驱逐）。同时执行 <span class="tag lock">dec_lock_ref</span> 解锁。',
+    nodes: [
+      { id:'root', label:'ROOT', parent:null, edgeLabel:'', kvPages:[], color:'default', highlight:false },
+      { id:'n1', label:'S₁', parent:'root', edgeLabel:'"You are a helpful"', kvPages:[0,1,2,3], color:'green', highlight:true },
+      { id:'n2', label:'S₂', parent:'n1', edgeLabel:'" assistant"', kvPages:[4,5], color:'amber', highlight:true, evictable:true },
+    ],
+    kvState: usedKV(16, [0,1,2,3,4,5]),
+    highlightKV: [0,1,2,3,4,5],
+    kvAction: null,
+  });
+
+  // Step 3: Request B arrives — same system prompt, different user query
+  demoSteps.push({
+    title: '请求 B 到达: match_prefix("You are a helpful assistant. What is AI?") → 命中 S₁+S₂',
+    desc: '请求 B 发送相同的系统提示 + 用户问题。调用 <span class="tag match">match_prefix</span>，从 ROOT 沿 "You are a helpful" → " assistant" 路径找到 <strong>S₂ 节点，6 个 token 全部命中</strong>。S₂ 节点及其祖先被 <span class="tag lock">inc_lock_ref</span> 锁定。B <strong>跳过前 6 个 token 的 Attention 计算</strong>，直接从 KV 缓存读取。B 被标记为活跃。',
+    nodes: [
+      { id:'root', label:'ROOT', parent:null, edgeLabel:'', kvPages:[], color:'default', highlight:false },
+      { id:'n1', label:'S₁', parent:'root', edgeLabel:'"You are a helpful"', kvPages:[0,1,2,3], color:'blue', highlight:true },
+      { id:'n2', label:'S₂', parent:'n1', edgeLabel:'" assistant"', kvPages:[4,5], color:'purple', highlight:true, evictable:false, locked:true },
+      { id:'reqB-active', label:'Req B\n(活跃)', parent:'n2', edgeLabel:'"What is AI?"', kvPages:[6,7,8,9], color:'purple', highlight:true, dashed:true },
+    ],
+    kvState: usedKV(16, [0,1,2,3,4,5,6,7,8,9]),
+    highlightKV: [0,1,2,3,4,5],
+    kvAction: null,
+  });
+
+  // Step 4: Request B finishes, new tokens inserted
+  demoSteps.push({
+    title: '请求 B 完成: cache_finished_req() → 分叉新节点',
+    desc: '请求 B 完成，调用 <span class="tag insert">cache_finished_req</span>。B 的完整序列是 "You are a helpful assistant. What is AI? <answer>"。前 6 个 token 已匹配 S₁+S₂（释放重复的 KV 页），后续<strong>新 token 在 S₂ 下创建分叉节点</strong> "What is AI?" → "answer"。<span class="tag lock">dec_lock_ref</span> 解锁后，S₂ 重新变为 <span class="tag evict">evictable</span>。',
+    nodes: [
+      { id:'root', label:'ROOT', parent:null, edgeLabel:'', kvPages:[], color:'default', highlight:false },
+      { id:'n1', label:'S₁', parent:'root', edgeLabel:'"You are a helpful"', kvPages:[0,1,2,3], color:'default', highlight:false },
+      { id:'n2', label:'S₂', parent:'n1', edgeLabel:'" assistant"', kvPages:[4,5], color:'default', highlight:false, evictable:true },
+      { id:'n3', label:'T₁', parent:'n2', edgeLabel:'"What is AI?"', kvPages:[10,11,12], color:'green', highlight:true },
+      { id:'n4', label:'T₂', parent:'n3', edgeLabel:'"answer tokens"', kvPages:[13,14,15], color:'amber', highlight:true, evictable:true },
+    ],
+    kvState: usedKV(16, [0,1,2,3,4,5,10,11,12,13,14,15]),
+    highlightKV: [10,11,12,13,14,15],
+    kvAction: 'free-6-9',
+  });
+
+  // Step 5: Request C arrives — shares prefix, new branch
+  demoSteps.push({
+    title: '请求 C 到达: match_prefix("You are a helpful assistant. Translate: Hello") → 命中 S₁+S₂，在 S₂ 处新分叉',
+    desc: '请求 C 的前 6 个 token 完全匹配 S₁+S₂，复用 KV 页 0-5。S₂ 被 <span class="tag lock">inc_lock_ref</span> 再次锁定。<strong>第 7 个 token "Translate" ≠ "What"</strong>，匹配在此结束。C 需要计算 "Translate: Hello" 的新 KV，将在 S₂ 下创建一个<strong>新分支</strong>。',
+    nodes: [
+      { id:'root', label:'ROOT', parent:null, edgeLabel:'', kvPages:[], color:'default', highlight:false },
+      { id:'n1', label:'S₁', parent:'root', edgeLabel:'"You are a helpful"', kvPages:[0,1,2,3], color:'blue', highlight:true },
+      { id:'n2', label:'S₂', parent:'n1', edgeLabel:'" assistant"', kvPages:[4,5], color:'purple', highlight:true, evictable:false, locked:true },
+      { id:'n3', label:'T₁', parent:'n2', edgeLabel:'"What is AI?"', kvPages:[10,11,12], color:'default', highlight:false },
+      { id:'n4', label:'T₂', parent:'n3', edgeLabel:'"answer tokens"', kvPages:[13,14,15], color:'default', highlight:false, evictable:true },
+      { id:'reqC-active', label:'Req C\n(活跃)', parent:'n2', edgeLabel:'"Translate: Hello"', kvPages:[], color:'purple', highlight:true, dashed:true },
+    ],
+    kvState: usedKV(16, [0,1,2,3,4,5,10,11,12,13,14,15]),
+    highlightKV: [0,1,2,3,4,5],
+    kvAction: null,
+  });
+
+  // Step 6: Request C finishes → new branch created
+  demoSteps.push({
+    title: '请求 C 完成: cache_finished_req() → S₂ 下形成分叉',
+    desc: '请求 C 完成，在 S₂ 下创建新分支 "Translate: Hello" → "Bonjour"。现在 S₂ 节点有<strong>两个子节点 T₁ 和 U₁</strong>——这正体现了基数树的分叉能力。<span class="tag lock">dec_lock_ref</span> 后 S₂ 重新变为 evictable。',
+    nodes: [
+      { id:'root', label:'ROOT', parent:null, edgeLabel:'', kvPages:[], color:'default', highlight:false },
+      { id:'n1', label:'S₁', parent:'root', edgeLabel:'"You are a helpful"', kvPages:[0,1,2,3], color:'default', highlight:false },
+      { id:'n2', label:'S₂', parent:'n1', edgeLabel:'" assistant"', kvPages:[4,5], color:'default', highlight:false, evictable:true },
+      { id:'n3', label:'T₁', parent:'n2', edgeLabel:'"What is AI?"', kvPages:[10,11,12], color:'default', highlight:false, evictable:false },
+      { id:'n4', label:'T₂', parent:'n3', edgeLabel:'"answer tokens"', kvPages:[13,14,15], color:'default', highlight:false, evictable:true },
+      { id:'n5', label:'U₁', parent:'n2', edgeLabel:'"Translate: Hello"', kvPages:[6,7,8], color:'green', highlight:true },
+      { id:'n6', label:'U₂', parent:'n5', edgeLabel:'"Bonjour"', kvPages:[9], color:'amber', highlight:true, evictable:true },
+    ],
+    kvState: allUsed(16),
+    highlightKV: [0,1,2,3,4,5,6,7,8,9],
+    kvAction: null,
+  });
+
+  // Step 7: Eviction
+  demoSteps.push({
+    title: '内存不足: evict(num_tokens=2) → 驱逐 U₂ 叶子',
+    desc: '显存紧张，需要释放 <strong>2 个 token</strong> 的 KV 缓存空间。调度器调用 <span class="tag evict">evict(2)</span>。驱逐策略（假设 LRU）遍历所有 <span class="tag evict">evictable_leaves</span>（当前有 S₂, T₂, U₂），U₂ 最久未访问。释放 U₂ 的 <strong>KV 页 9</strong>（1 页），还需 1 个 token → 继续驱逐 U₁，释放 <strong>页 6-8</strong>。',
+    nodes: [
+      { id:'root', label:'ROOT', parent:null, edgeLabel:'', kvPages:[], color:'default', highlight:false },
+      { id:'n1', label:'S₁', parent:'root', edgeLabel:'"You are a helpful"', kvPages:[0,1,2,3], color:'default', highlight:false },
+      { id:'n2', label:'S₂', parent:'n1', edgeLabel:'" assistant"', kvPages:[4,5], color:'default', highlight:false, evictable:true },
+      { id:'n3', label:'T₁', parent:'n2', edgeLabel:'"What is AI?"', kvPages:[10,11,12], color:'default', highlight:false, evictable:false },
+      { id:'n4', label:'T₂', parent:'n3', edgeLabel:'"answer tokens"', kvPages:[13,14,15], color:'default', highlight:false, evictable:true },
+      { id:'n5', label:'U₁', parent:'n2', edgeLabel:'"Translate: Hello"', kvPages:[6,7,8], color:'red', highlight:true, evicting:true },
+      { id:'n6', label:'U₂', parent:'n5', edgeLabel:'"Bonjour"', kvPages:[9], color:'red', highlight:true, evicting:true },
+    ],
+    kvState: usedKV(16, [0,1,2,3,4,5,10,11,12,13,14,15]),
+    highlightKV: [6,7,8,9],
+    kvAction: 'evict-6-9',
+  });
+}
+
+function freeKV(n) { return Array(n).fill('free'); }
+function usedKV(n, used) { const a = freeKV(n); used.forEach(i => { if (i < n) a[i] = 'used'; }); return a; }
+function allUsed(n) { return Array(n).fill('used'); }
+
+buildDemo();
+let currentStep = 0;
+
+// ============ RENDER ============
+
+function render() {
+  const step = demoSteps[currentStep];
+  document.getElementById('scenarioName').textContent = step.title;
+  document.getElementById('stepIndicator').textContent = `${currentStep + 1} / ${demoSteps.length}`;
+  document.getElementById('panelDesc').innerHTML = step.desc;
+  document.getElementById('btnPrev').disabled = currentStep === 0;
+  document.getElementById('btnNext').disabled = currentStep === demoSteps.length - 1;
+
+  renderTree(step);
+  renderKVPool(step);
+}
+
+// Tree layout engine
+function layoutTree(nodes) {
+  // Build adjacency
+  const children = {};
+  const nodeMap = {};
+  nodes.forEach(n => {
+    nodeMap[n.id] = n;
+    if (!children[n.parent]) children[n.parent] = [];
+    if (n.parent !== null) children[n.parent].push(n.id);
+  });
+
+  // Assign layers by BFS from root
+  const layers = {};
+  const queue = ['root'];
+  layers['root'] = 0;
+  while (queue.length) {
+    const id = queue.shift();
+    (children[id] || []).forEach(cid => {
+      layers[cid] = layers[id] + 1;
+      queue.push(cid);
+    });
+  }
+
+  // Group nodes by layer
+  const maxLayer = Math.max(...Object.values(layers));
+  const layerNodes = {};
+  for (let i = 0; i <= maxLayer; i++) layerNodes[i] = [];
+  nodes.forEach(n => { layerNodes[layers[n.id]].push(n); });
+
+  // Assign positions
+  const pos = {};
+  const SVG_W = 1000, SVG_H = 340;
+  const MARGIN_X = 80, MARGIN_Y = 60;
+  const usableW = SVG_W - 2 * MARGIN_X;
+
+  for (let L = 0; L <= maxLayer; L++) {
+    const arr = layerNodes[L];
+    const y = MARGIN_Y + L * 85;
+    const spacing = usableW / (arr.length + 1);
+    arr.forEach((n, i) => {
+      pos[n.id] = { x: MARGIN_X + spacing * (i + 1), y };
+    });
+  }
+
+  return { pos, nodeMap, children, maxLayer };
+}
+
+function colorForNode(n) {
+  if (n.evicting) return '#dc2626';
+  if (n.dashed) return '#7c3aed';
+  if (n.locked) return '#7c3aed';
+  if (n.evictable) return '#d97706';
+  switch (n.color) {
+    case 'green': return '#059669';
+    case 'blue': return '#2563eb';
+    case 'purple': return '#7c3aed';
+    case 'red': return '#dc2626';
+    case 'amber': return '#d97706';
+    default: return '#374151';
+  }
+}
+
+function fillForNode(n) {
+  if (n.evicting) return 'rgba(220,38,38,0.08)';
+  if (n.dashed) return 'rgba(124,58,237,0.06)';
+  if (n.locked) return 'rgba(124,58,237,0.08)';
+  if (n.evictable) return 'rgba(217,119,6,0.06)';
+  switch (n.color) {
+    case 'green': return 'rgba(5,150,105,0.08)';
+    case 'blue': return 'rgba(37,99,235,0.08)';
+    case 'purple': return 'rgba(124,58,237,0.06)';
+    case 'red': return 'rgba(220,38,38,0.08)';
+    case 'amber': return 'rgba(217,119,6,0.06)';
+    default: return '#ffffff';
+  }
+}
+
+function strokeDashForNode(n) {
+  return n.dashed ? '6,3' : '1.5';
+}
+
+function renderTree(step) {
+  const nodes = step.nodes;
+  const { pos, nodeMap, children } = layoutTree(nodes);
+  const SVG_W = 1000, SVG_H = 340;
+
+  // Determine the actual tree height and adjust SVG
+  const maxY = Math.max(...Object.values(pos).map(p => p.y));
+  const actualH = Math.max(340, maxY + 100);
+
+  let svg = `<svg viewBox="0 0 ${SVG_W} ${actualH}" width="${SVG_W}" height="${actualH}" xmlns="http://www.w3.org/2000/svg">`;
+  svg += `<defs><marker id="tree-arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#8b919e"/></marker></defs>`;
+
+  // Edges
+  nodes.forEach(n => {
+    if (n.parent === null) return;
+    const p = pos[n.parent], c = pos[n.id];
+    const strokeColor = n.highlight ? colorForNode(n) : '#d5dae3';
+    const strokeW = n.highlight ? 2 : 1.2;
+    svg += `<line x1="${p.x}" y1="${p.y + 18}" x2="${c.x}" y2="${c.y - 18}" stroke="${strokeColor}" stroke-width="${strokeW}" marker-end="url(#tree-arrow)" stroke-dasharray="${strokeDashForNode(n)}"/>`;
+
+    // Edge label
+    if (n.edgeLabel) {
+      const mx = (p.x + c.x) / 2, my = (p.y + c.y) / 2;
+      svg += `<text x="${mx}" y="${my - 6}" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9" fill="#8b919e">${esc(n.edgeLabel)}</text>`;
+    }
+  });
+
+  // Nodes
+  nodes.forEach(n => {
+    const p = pos[n.id];
+    const r = n.id === 'root' ? 22 : (n.dashed ? 20 : 18);
+    const strokeCol = n.highlight ? colorForNode(n) : (n.id === 'root' ? '#374151' : '#d5dae3');
+    const fillCol = fillForNode(n);
+    const txtCol = colorForNode(n);
+
+    svg += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${fillCol}" stroke="${strokeCol}" stroke-width="${n.highlight ? 2 : 1.2}" stroke-dasharray="${strokeDashForNode(n)}"/>`;
+    svg += `<text x="${p.x}" y="${p.y + 4}" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="${n.id === 'root' ? 12 : 10}" font-weight="700" fill="${txtCol}">${n.label}</text>`;
+
+    // KV page badges
+    if (n.kvPages && n.kvPages.length > 0) {
+      const pagesStr = n.kvPages.join(',');
+      svg += `<text x="${p.x}" y="${p.y + r + 14}" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="8" fill="#8b919e">页[${pagesStr}]</text>`;
+    }
+
+    // Evictable marker
+    if (n.evictable && !n.locked) {
+      svg += `<text x="${p.x + r + 4}" y="${p.y - 4}" font-family="JetBrains Mono, monospace" font-size="9" fill="#d97706">◈</text>`;
+    }
+    if (n.locked) {
+      svg += `<text x="${p.x + r + 4}" y="${p.y - 4}" font-family="JetBrains Mono, monospace" font-size="9" fill="#7c3aed">🔒</text>`;
+    }
+    if (n.evicting) {
+      svg += `<text x="${p.x + r + 4}" y="${p.y - 4}" font-family="JetBrains Mono, monospace" font-size="9" fill="#dc2626">✕</text>`;
+    }
+  });
+
+  // Request labels for dashed nodes
+  nodes.filter(n => n.dashed).forEach(n => {
+    const p = pos[n.id];
+    svg += `<text x="${p.x}" y="${p.y + 40}" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="8" fill="#7c3aed">(进行中)</text>`;
+  });
+
+  svg += '</svg>';
+  document.getElementById('svgStage').innerHTML = svg;
+}
+
+function renderKVPool(step) {
+  const kv = step.kvState;
+  const highlight = step.highlightKV || [];
+  const action = step.kvAction;
+  let html = '<div style="font-family:JetBrains Mono,monospace;font-size:0.72rem;color:var(--text-dim);padding:8px 24px 0;">KV 缓存页池 (每页 = 1 token)</div><div class="kv-grid">';
+  kv.forEach((state, i) => {
+    let cls = 'kv-page';
+    if (highlight.includes(i)) {
+      if (action && action.startsWith('evict') && highlight.includes(i)) cls += ' evicting';
+      else cls += ' used';
+    } else if (state === 'used') {
+      cls += ' used';
+    } else {
+      cls += ' free';
+    }
+    html += `<div class="${cls}">${i}</div>`;
+  });
+  html += '</div>';
+
+  if (action && action.startsWith('free')) {
+    const freed = action.replace('free-', '').split('-').join(', ');
+    html += `<div style="font-size:0.78rem;color:var(--red);padding:0 24px 8px;">↳ 释放重复页: [${freed}]（树中已有相同前缀，释放 B 的冗余 KV 页）</div>`;
+  }
+  if (action && action.startsWith('evict')) {
+    const evicted = action.replace('evict-', '').split('-').join(', ');
+    html += `<div style="font-size:0.78rem;color:var(--red);padding:0 24px 8px;">↳ 驱逐页: [${evicted}] → 归还到空闲池</div>`;
+  }
+  if (action && action.startsWith('alloc')) {
+    html += `<div style="font-size:0.78rem;color:var(--green);padding:0 24px 8px;">↳ 新分配 ${action.replace('alloc-','')} 页给活跃请求</div>`;
+  }
+
+  document.getElementById('kvGrid').innerHTML = html;
+}
+
+function esc(s) { return s.replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function nextStep() {
+  if (currentStep < demoSteps.length - 1) { currentStep++; render(); }
+}
+function prevStep() {
+  if (currentStep > 0) { currentStep--; render(); }
+}
+function resetDemo() {
+  currentStep = 0;
+  render();
+}
+
+// Keyboard nav
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') nextStep();
+  if (e.key === 'ArrowLeft') prevStep();
+});
+
+// Initial render
+render();
+</script>
+
+</body>
+</html>

@@ -357,3 +357,14 @@ export async function monitorProvider(opts) {
 | 安全策略 | allowlist、DM 策略、群策略统一框架 |
 | 配置管理 | `ChannelConfigAdapter` 统一配置解析与验证 |
 | 工具策略 | `resolveToolPolicy` 群内工具使用限制 |
+
+## Related
+
+* [[Pairing Mechanism]]
+* [[System Layers]]
+* [[Agent Collaboration Patterns]]
+* [[Enterprise Agent Service Model]]
+
+## Tags
+
+#openclaw #plugin #extension #channel

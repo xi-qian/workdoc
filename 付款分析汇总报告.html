@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>财务付款分析 & Agent预审机制 — 汇总报告</title>
+<style>
+  :root {
+    --red: #e74c3c; --orange: #f39c12; --green: #27ae60; --blue: #2980b9;
+    --gray: #95a5a6; --dark: #2c3e50; --bg: #f8f9fa; --card: #fff;
+    --border: #dee2e6;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: #333; line-height: 1.6; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+
+  header { background: linear-gradient(135deg, var(--dark) 0%, #34495e 100%); color: #fff; padding: 60px 20px; text-align: center; margin-bottom: 40px; }
+  header h1 { font-size: 2.2em; margin-bottom: 10px; }
+  header p { opacity: 0.85; font-size: 1.1em; }
+
+  .card { background: var(--card); border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); padding: 28px; margin-bottom: 24px; }
+  .card h2 { font-size: 1.4em; color: var(--dark); margin-bottom: 16px; padding-bottom: 10px; border-bottom: 2px solid var(--border); }
+  .card h3 { font-size: 1.1em; color: #555; margin: 20px 0 10px; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .stat { background: var(--card); border-radius: 8px; padding: 20px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+  .stat .num { font-size: 2em; font-weight: 700; }
+  .stat .label { color: #777; font-size: 0.9em; margin-top: 4px; }
+  .stat .num.red { color: var(--red); } .stat .num.orange { color: var(--orange); }
+  .stat .num.green { color: var(--green); } .stat .num.blue { color: var(--blue); }
+
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.92em; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { background: #f1f3f5; font-weight: 600; color: #555; }
+  tr:hover { background: #f8f9fa; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.8em; font-weight: 600; }
+  .tag-red { background: #fde8e8; color: var(--red); } .tag-orange { background: #fef3e2; color: var(--orange); }
+  .tag-green { background: #e6f4ea; color: var(--green); } .tag-blue { background: #e3f0f9; color: var(--blue); }
+  .tag-gray { background: #f1f3f5; color: #777; }
+
+  .flow { background: #f8f9fa; border-radius: 8px; padding: 20px; margin: 16px 0; font-family: 'Courier New', monospace; font-size: 0.85em; white-space: pre; overflow-x: auto; line-height: 1.8; }
+  .highlight { background: #fff3cd; padding: 2px 4px; border-radius: 2px; }
+  .alert { border-left: 4px solid var(--orange); background: #fef9f0; padding: 12px 16px; margin: 12px 0; border-radius: 0 6px 6px 0; }
+  .alert-red { border-left-color: var(--red); background: #fef0f0; }
+
+  .demo-box { border: 1px dashed var(--blue); border-radius: 8px; padding: 20px; margin: 16px 0; background: #f0f7fd; }
+  .demo-box h4 { color: var(--blue); margin-bottom: 10px; }
+  .demo-box .step { margin: 8px 0; padding: 8px 12px; background: #fff; border-radius: 4px; border-left: 3px solid var(--blue); }
+  .demo-box .step.fail { border-left-color: var(--red); }
+  .demo-box .step.ok { border-left-color: var(--green); }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 768px) { .two-col { grid-template-columns: 1fr; } }
+
+  .bar { height: 8px; border-radius: 4px; margin: 4px 0 12px; background: #e9ecef; }
+  .bar-fill { height: 100%; border-radius: 4px; }
+  .bar-fill.red { background: var(--red); } .bar-fill.orange { background: var(--orange); }
+  .bar-fill.blue { background: var(--blue); } .bar-fill.green { background: var(--green); }
+
+  .gradient-bar { display: flex; height: 30px; border-radius: 4px; overflow: hidden; margin: 12px 0; font-size: 0.75em; }
+  .gradient-bar div { display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>财务付款分析 & Agent 预审机制</h1>
+  <p>数据范围：付款 709 笔 · 合同 480 笔 · 周报 108 条 &nbsp;|&nbsp; 分析日期：2026-05-08</p>
+</header>
+
+<div class="container">
+
+<!-- ====== 总览 ====== -->
+<div class="card">
+  <h2>一、数据总览</h2>
+  <div class="stats">
+    <div class="stat"><div class="num red">¥3,748万</div><div class="label">2026.1-5 付款总额（170笔）</div></div>
+    <div class="stat"><div class="num orange">99.8%</div><div class="label">付款无法关联临床项目</div></div>
+    <div class="stat"><div class="num blue">17笔 · ¥1,146万</div><div class="label">内部往来款</div></div>
+    <div class="stat"><div class="num green">5笔 · ¥7.1万</div><div class="label">能明确关联项目</div></div>
+  </div>
+
+  <h3>按供应商分类（外部付款 ¥2,603万）</h3>
+  <div class="gradient-bar">
+    <div style="width:39%;background:#e74c3c">试剂耗材 ¥1,021万</div>
+    <div style="width:31%;background:#e67e22">退款 ¥810万</div>
+    <div style="width:13%;background:#f39c12">技术服务 ¥343万</div>
+    <div style="width:8%;background:#2980b9">检测 ¥208万</div>
+    <div style="width:9%;background:#95a5a6">其他 ¥221万</div>
+  </div>
+</div>
+
+<!-- ====== 关键发现 ====== -->
+<div class="card">
+  <h2>二、核心发现</h2>
+
+  <div class="two-col">
+    <div>
+      <h3>🔴 问题1：付款与项目完全脱节</h3>
+      <p>170笔付款中仅5笔能在主题中直接识别医院/项目名称。<br>
+      20个周报临床项目几乎看不到对应的资金流入。</p>
+      <div class="alert-red">付款归因率：<strong>2.9%</strong></div>
+    </div>
+    <div>
+      <h3>🔴 问题2：内部往来款是黑箱</h3>
+      <p>17笔 ¥1,146万全部标注"往来款"。<br>
+      真实用途藏在备注里——还贷款、发工资、付供应商。</p>
+      <div class="alert-red">往来款真实用途标注率：<strong>0%</strong></div>
+    </div>
+    <div>
+      <h3>🟡 问题3：通道业务伪装修采购</h3>
+      <p>试剂盒 ¥1,610万表面是采购，合同评论揭示实为"轮次制"背对背现金流。<br>
+      收款≈出款，结余≈0。</p>
+      <div class="alert">轮次制交易：<strong>至少 5 个轮次</strong></div>
+    </div>
+    <div>
+      <h3>🟡 问题4：XJL 体系与周报不互通</h3>
+      <p>64个 XJL 编号中仅3个能对应到周报中的临床项目。<br>
+      XJL 管商业交易，周报管临床进展——两套系统。</p>
+      <div class="alert">XJL-临床映射率：<strong>4.7%</strong></div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 单笔分析案例 ====== -->
+<div class="card">
+  <h2>三、单笔付款深度分析示例</h2>
+
+  <h3>案例1：直接归属 — 北京胸科医院 IIT 首付款</h3>
+  <table>
+    <tr><th width="120">审批单号</th><td>202603270015</td><th width="100">金额</th><td>¥29,329.46</td></tr>
+    <tr><th>关联合同</th><td>202603120008（总额 ¥146,647，本次付20%）</td><th>收款方</th><td>首都医科大学附属北京胸科医院</td></tr>
+    <tr><th>关联项目</th><td colspan="3">3D培养hUCMSC-EVs雾化吸入治疗特发性肺纤维化（负责人：徐亚平）</td></tr>
+  </table>
+
+  <div class="flow">付款 202603270015 ──关联──→ 合同 202603120008 ──目的──→ 北京胸科医院 IIT
+¥29,329 首付20%           ¥146,647 合作协议          hPMSC-EVs雾化治疗</div>
+
+  <h3>案例2：归属模糊 — 外泌体检测费用</h3>
+  <table>
+    <tr><th width="120">审批单号</th><td>202604020005</td><th width="100">金额</th><td>¥7,720</td></tr>
+    <tr><th>问题</th><td colspan="3">主题只写"外泌体检测 费用"，备注自述包含两个用途：IIT数据检测 + 生产QC，但未拆分金额。无合同、无XJL。</td></tr>
+  </table>
+
+  <div class="demo-box">
+    <h4>Agent 预审结果（模拟）</h4>
+    <div class="step fail"><strong>❌ 归因不足 — 退回补充</strong><br>
+      • 缺失：费用未拆分。¥7,720 中 IIT 检测部分 vs 生产QC部分各多少？<br>
+      • 缺失：关联合同编号<br>
+      • 模糊：消耗目的仅5字，需≥20字说明"吴老师3D外泌体"对应哪个具体项目</div>
+  </div>
+
+  <h3>案例3：通道业务 — 聚合美试剂盒</h3>
+  <table>
+    <tr><th width="120">审批单号</th><td>202604010003</td><th width="100">金额</th><td>¥20,000</td></tr>
+    <tr><th>XJL</th><td>XJL-1047</td><th>合同评论</th><td>轮次 2601BJ21：艾克发→荷塘¥219万→优迅，结余0</td></tr>
+  </table>
+
+  <div class="demo-box">
+    <h4>Agent 预审结果（模拟）</h4>
+    <div class="step ok"><strong>⚠️ 通过但标注通道业务</strong><br>
+      • 识别：轮次 2601BJ21，收款¥219万≈出款¥219万，结余¥0<br>
+      • 标记：💰 现金流通道业务，不产生利润<br>
+      • 建议：确认该轮次是否已完成收付款闭环</div>
+  </div>
+</div>
+
+<!-- ====== 演示：Agent预审 ====== -->
+<div class="card">
+  <h2>四、Agent 预审演示</h2>
+
+  <h3>场景A：提交一笔付款，Agent 自动评分</h3>
+
+  <div class="demo-box">
+    <h4>📝 付款单提交</h4>
+    <table>
+      <tr><td>主题</td><td>付NK细胞培养套装采购款</td></tr>
+      <tr><td>金额</td><td>¥19,250</td></tr>
+      <tr><td>收款方</td><td>友康厚德生物制品（北京）有限公司</td></tr>
+      <tr><td>归属模式</td><td>成本池（NK细胞培养材料）</td></tr>
+      <tr><td>材料类别</td><td>试剂耗材</td></tr>
+      <tr><td>预估覆盖周期</td><td>30天</td></tr>
+      <tr><td>预估服务项目数</td><td>8个NK相关项目</td></tr>
+      <tr><td>消耗目的</td><td>用于NK细胞体外扩增培养，覆盖公司在研NK相关IIT项目（高博、济宁、泰安、血研所等）的细胞生产需求</td></tr>
+    </table>
+  </div>
+
+  <div class="demo-box">
+    <h4>🤖 Agent 自动分析</h4>
+    <div class="step ok">✅ 归属模式：成本池 — 不要求选项目，合理</div>
+    <div class="step ok">✅ 材料类别：试剂耗材 ✓</div>
+    <div class="step ok">✅ 消耗目的：31字，描述了生产用途和覆盖项目范围，具体 ✓</div>
+    <div class="step ok">✅ 预估覆盖周期30天 — 上次采购是2026-03-12（24天前），采购频率合理</div>
+    <div class="step ok">✅ NK培养套装 — 历史数据显示每月固定采购，属正常补货</div>
+    <div style="margin: 12px 0; padding: 10px; background: #e6f4ea; border-radius: 4px;">
+      <strong>归因评分：9/10</strong> — ✅ 通过<br>
+      <span style="color:#777">扣1分：供应商历史采购频率高，建议签框架合同减少审批次数</span>
+    </div>
+  </div>
+
+  <h3>场景B：归因不足被退回的典型情况</h3>
+
+  <div class="demo-box">
+    <h4>📝 付款单提交</h4>
+    <table>
+      <tr><td>主题</td><td>付服务费</td></tr>
+      <tr><td>金额</td><td>¥500,000</td></tr>
+      <tr><td>归属模式</td><td>直接归属</td></tr>
+      <tr><td>所属项目</td><td>（未选择）</td></tr>
+      <tr><td>消耗目的</td><td>服务费</td></tr>
+    </table>
+  </div>
+
+  <div class="demo-box">
+    <h4>🤖 Agent 自动分析</h4>
+    <div class="step fail">❌ 项目归属：未关联项目 — <strong>不通过</strong></div>
+    <div class="step fail">❌ 消耗目的仅3字，无法判断用途 — <strong>不通过</strong></div>
+    <div style="margin: 12px 0; padding: 10px; background: #fef0f0; border-radius: 4px;">
+      <strong>归因评分：1/10</strong> — 🚫 退回补充<br>
+      <span style="color:#c0392b">退回原因：① 请选择所属项目或切换为"成本池/公共费用"模式；<br>
+      ② 消耗目的需≥20字，说明具体用途和业务背景。</span>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 业务模式发现 ====== -->
+<div class="card">
+  <h2>五、发现的业务模式</h2>
+
+  <h3>轮次制现金流通道</h3>
+  <p>试剂盒、爱姆森 SaaS 软件、泰山药业中药研发——均发现合同评论中手写的轮次信息，收款≈出款，结余≈0。</p>
+
+  <div class="flow">轮次 2601BJ21：艾克发 ──¥219万──→ 北京荷塘 ──¥219万──→ 优迅（试剂盒）
+轮次 2601BJ22：上海锐翌 ──¥508万──→ 北京荷塘 ──¥508万──→ 优迅+阔然（试剂盒）
+轮次 2510SH11：晟誉+爱姆森 ──¥300万──→ 北京荷塘 ──¥300万──→ 爱姆森（SaaS软件）
+轮次 2509SH11：上海晟誉 ──¥200万──→ 北京荷塘 ──¥150万──→ 爱姆森（SaaS软件），结余¥50万</div>
+
+  <h3>资金池调度</h3>
+  <p>上海荷塘是集团资金中心，定期向北京输血，备注揭示真实用途：</p>
+  <table>
+    <tr><th>日期</th><th>金额</th><th>名义</th><th>备注中真实用途</th></tr>
+    <tr><td>01-09</td><td>¥350万</td><td>往来款</td><td>250万还贷款 + 100万发工资</td></tr>
+    <tr><td>02-10</td><td>¥210万</td><td>往来款</td><td>发工资、付无锡聚树等款项</td></tr>
+    <tr><td>03-30</td><td>¥110万</td><td>往来款</td><td>贷款170万 + 付8笔供应商款（伊康达、检洁、泰诺恩等）</td></tr>
+  </table>
+</div>
+
+<!-- ====== 预审方案核心设计 ====== -->
+<div class="card">
+  <h2>六、Agent 预审机制核心设计</h2>
+
+  <h3>三种归属模式</h3>
+  <table>
+    <tr><th>模式</th><th>采购时选项目？</th><th>如何追溯成本</th><th>典型场景</th></tr>
+    <tr>
+      <td><span class="tag tag-green">直接归属</span></td>
+      <td>✅ 必须选</td>
+      <td>付款直接挂项目</td>
+      <td>医院IIT首付款、CRO服务费</td>
+    </tr>
+    <tr>
+      <td><span class="tag tag-blue">成本池</span></td>
+      <td>❌ 不选</td>
+      <td>入池→领用消耗→月末分摊</td>
+      <td>NK套装、试剂盒、离心管</td>
+    </tr>
+    <tr>
+      <td><span class="tag tag-gray">公共费用</span></td>
+      <td>❌ 不选</td>
+      <td>按规则自动分摊</td>
+      <td>房租、电费、打印、快递</td>
+    </tr>
+  </table>
+
+  <h3>Agent 预审流程</h3>
+  <div class="flow">付款单提交 → Agent识别归属模式 → 按模式评分 → ≥6分通过/&lt;6分退回
+                                                      ↓
+                         直接归属: 查项目+合同+部门一致性
+                         成本池:   查库存+消耗速率+历史采购频率
+                         公共费用: 查分摊规则
+                         通道/内部/退款: 查链路完整性</div>
+
+  <h3>最小可行数据集</h3>
+  <div class="two-col">
+    <div>
+      <h4>✅ 现有数据可直接用</h4>
+      <ul>
+        <li>供应商画像（付款+合同挖掘）</li>
+        <li>付款模式（comment_list 挖掘）</li>
+        <li>合同健康度（字段完整性统计）</li>
+        <li>项目进展（周报同步）</li>
+        <li>资金流向（付款方统计）</li>
+      </ul>
+    </div>
+    <div>
+      <h4>❌ 需要业务方补充</h4>
+      <ul>
+        <li><strong>XJL→项目映射表</strong>（优先级最高）</li>
+        <li><strong>材料消耗记录 2-3个月</strong>（优先级最高）</li>
+        <li>通道业务白名单确认</li>
+        <li>大额服务合同验收状态</li>
+        <li>供应商关系图谱</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 文件清单 ====== -->
+<div class="card">
+  <h2>七、已产出文档清单</h2>
+  <table>
+    <tr><th>文档</th><th>飞书链接</th></tr>
+    <tr><td>付款与合同分析报告</td><td><a href="https://shaehv5cfo.feishu.cn/docx/EyKBdo0FSoP6uwxFduecfGUDnZf">打开</a></td></tr>
+    <tr><td>成本归属分析报告</td><td><a href="https://shaehv5cfo.feishu.cn/docx/EyKBdo0FSoP6uwxFduecfGUDnZf">打开</a></td></tr>
+    <tr><td>试剂盒业务分析（轮次制现金流）</td><td><a href="https://shaehv5cfo.feishu.cn/docx/BZuydy6Yqo2r1VxqKo8cpIr9nxf">打开</a></td></tr>
+    <tr><td>山东泰山药业业务分析</td><td><a href="https://shaehv5cfo.feishu.cn/docx/LlpIdbNK5odfxlxwyVZcNEOCn1d">打开</a></td></tr>
+    <tr><td>爱姆森业务分析</td><td><a href="https://shaehv5cfo.feishu.cn/docx/TUXRdMzaZoYQ1wxtzrLcplTXnPh">打开</a></td></tr>
+    <tr><td>付款预审机制设计方案</td><td><a href="https://shaehv5cfo.feishu.cn/docx/XWyDdHUPho20RFx5tK7crYG7nCg">打开</a></td></tr>
+    <tr><td>数据资产盘点（已有vs待补充）</td><td><a href="https://shaehv5cfo.feishu.cn/docx/BRRydsxBYoAfxWxEq4TcOccDndM">打开</a></td></tr>
+    <tr><td>单笔付款分析（4篇）</td><td>飞书文档列表可见</td></tr>
+  </table>
+</div>
+
+</div>
+</body>
+</html>
