@@ -6,7 +6,7 @@ Make agent-runner capable of running as a warm process that polls DB-backed inbo
 
 ## Non-goals
 
-- Do not require single-container runtime yet.
+- Do not require agent-container runtime yet.
 - Do not require OpenCode yet.
 - Do not remove single-shot mode.
 - Do not remove legacy file tool IPC yet.
@@ -35,8 +35,9 @@ Preferred CLI:
 agent-runner \
   --tenant acme \
   --agent finance \
+  --group feishu-main \
   --mode live \
-  --runtime-dir /runtime/tenants/acme/agents/finance/live \
+  --runtime-dir /runtime/groups/feishu-main/live \
   --cwd /workspace/tenants/acme/agents/finance
 ```
 
@@ -45,8 +46,9 @@ Environment fallback:
 ```env
 NANOCLAW_TENANT=acme
 NANOCLAW_AGENT=finance
+NANOCLAW_GROUP=feishu-main
 NANOCLAW_RUN_MODE=live
-NANOCLAW_RUNTIME_DIR=/runtime/tenants/acme/agents/finance/live
+NANOCLAW_RUNTIME_DIR=/runtime/groups/feishu-main/live
 NANOCLAW_CWD=/workspace/tenants/acme/agents/finance
 ```
 
@@ -117,7 +119,7 @@ Legacy `_close` file can still be bridged to this state key.
 
 An isolated task:
 
-- uses the same tenant/agent identity
+- uses the same tenant-managed config, agent service, and group identity
 - runs as the same future Linux user
 - uses a unique run directory
 - does not read live chat history
@@ -168,4 +170,3 @@ The host should prefer `outbound.db` when `NANOCLAW_RUNTIME_DIR` is present.
 - Host can enqueue a message after process startup and receive an outbound response.
 - isolated task does not modify live continuation.
 - Existing Docker per-group runtime can launch either legacy or poll-loop mode.
-

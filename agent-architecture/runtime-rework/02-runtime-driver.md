@@ -2,7 +2,7 @@
 
 ## Goal
 
-Introduce a runtime boundary so the current per-group Docker implementation can coexist with future single-container/user-isolated runtime. Behavior must remain unchanged by default.
+Introduce a runtime boundary so the current per-group Docker implementation can coexist with the future agent-container/group-user-isolated runtime. Behavior must remain unchanged by default.
 
 ## Non-goals
 
@@ -184,4 +184,3 @@ Later UI copy can change from container to run.
 - No scheduler/router code imports Docker-specific helpers.
 - A fake runtime driver can be used in tests.
 - All current tests pass with the default driver.
-

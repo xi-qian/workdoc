@@ -14,11 +14,17 @@ These must remain true throughout the migration:
 - Existing scheduled task semantics remain:
   - `context_mode: "group"` uses group chat context.
   - `context_mode: "isolated"` uses a fresh single-shot run with no chat history.
-- isolated task is context/lifecycle isolation, not a separate tenant security boundary.
+- isolated task is context/lifecycle isolation, not a separate group security boundary.
 - Secrets must not be written to tenant Git repositories.
-- No runtime directory should rely on `0777` or `0666` after Version 1.6.
+- No group runtime directory should rely on `0777` or `0666` after Version 1.6.
 - Claude provider remains available until OpenCode has production parity for the deployment.
 - Rollback path must exist at every phase.
+- The central host DB remains authoritative for routing, tasks, registered groups, and cursors until explicitly migrated.
+- Runtime DB rows must preserve current message metadata: channel, chat JID, sender ID/name, attachments, card actions, scheduled task IDs, and source message IDs.
+- Host-side authorization gates remain host/supervisor enforced: sender allowlist, trigger rules, main/self privileges, approval allowlist, and mount allowlist.
+- Do not silently carry per-group writable `agent-runner-src` into the final shared agent container.
+- Additional mounts must be classified as agent-wide or group-specific before use in the agent-container runtime.
+- Reporter/local API skill edits must not mutate tenant-managed skills.
 
 ## Version 1.1: Tenant, Agent, and Skill Boundary
 
@@ -48,9 +54,11 @@ Design doc: [01-tenant-agent-skill-boundary.md](./01-tenant-agent-skill-boundary
 - Add legacy adapter:
   - maps existing `groups/<folder>/CLAUDE.md` to synthetic tenant `legacy`
   - does not change existing group behavior
+  - preserves JID, trigger, `requiresTrigger`, `isMain`, timeout, additional mounts, and P2P/source metadata
 - Add setup/config support:
   - document `NANOCLAW_TENANTS_DIR`
   - print loaded tenants/agents at startup
+  - document how `approval-allowlist.json`, `sender-allowlist.json`, and `mount-allowlist.json` remain host-side policy
 - Add migration script:
   - dry-run by default
   - source: existing `groups/`
@@ -64,6 +72,7 @@ Design doc: [01-tenant-agent-skill-boundary.md](./01-tenant-agent-skill-boundary
 - Missing skill reference yields diagnostic.
 - Secret-looking values in JSON are rejected or warned.
 - Legacy groups still load.
+- Legacy registered group fields round-trip through migration dry run.
 
 ### Manual Verification
 
@@ -158,6 +167,12 @@ Design doc: [03-db-backed-ipc.md](./03-db-backed-ipc.md)
 - Host polls outbound and delivers.
 - Keep stdout sentinel during compatibility.
 - Keep legacy file IPC directories under a `legacy-ipc` path.
+- Keep central DB cursor ownership explicit:
+  - `last_timestamp`
+  - `last_agent_timestamp`
+  - rollback on failed run before output
+- Include inbound/outbound metadata for attachments, card actions, sender IDs, scheduled task IDs, chat/channel, and source message IDs.
+- Add idempotency/dedupe keys for inbound and outbound rows.
 
 ### Tests
 
@@ -167,6 +182,8 @@ Design doc: [03-db-backed-ipc.md](./03-db-backed-ipc.md)
 - Host can mark outbound delivered.
 - isolated task DB path is separate from live DB path.
 - legacy file IPC path is still created.
+- cursor rollback and no-duplicate delivery are covered.
+- host restart can resume outbound delivery without duplicate sends.
 
 ### Manual Verification
 
@@ -229,7 +246,7 @@ Start agent-runner in live mode with a temp runtime dir. Insert inbound row manu
 - Linux users
 - provider selection semantics
 
-## Version 1.5: Single Docker Runtime Supervisor
+## Version 1.5: Agent Service Container Supervisor
 
 Design doc: [05-single-container-supervisor.md](./05-single-container-supervisor.md)
 
@@ -250,8 +267,8 @@ Design doc: [05-single-container-supervisor.md](./05-single-container-supervisor
   - `runs.list`
   - `events.subscribe`
 - Add host runtime driver:
-  - `src/runtime/single-container.ts`
-  - starts long-lived Docker runtime container
+  - `src/runtime/agent-container.ts`
+  - starts one long-lived Docker container per agent service
   - connects to supervisor
   - maps `RuntimeDriver` methods
 - Add run logs:
@@ -260,9 +277,9 @@ Design doc: [05-single-container-supervisor.md](./05-single-container-supervisor
 
 ### Tests
 
-- supervisor starts an agent process.
+- supervisor starts a group process.
 - supervisor reports running/exited status.
-- runtime driver starts runtime container if absent.
+- runtime driver starts the target agent service container if absent.
 - `runs.stop` terminates process.
 - isolated task exits and status is recorded.
 - old `docker-per-group` driver still passes tests.
@@ -270,10 +287,10 @@ Design doc: [05-single-container-supervisor.md](./05-single-container-supervisor
 ### Manual Verification
 
 ```bash
-NANOCLAW_RUNTIME_DRIVER=single-container npm run dev
+NANOCLAW_RUNTIME_DRIVER=agent-container npm run dev
 ```
 
-Verify one runtime Docker container exists and no per-group container is created for a message.
+Verify one Docker container exists for the target agent service and no per-group container is created for a message.
 
 ### Do Not Change
 
@@ -290,34 +307,38 @@ Design doc: [06-container-user-isolation.md](./06-container-user-isolation.md)
 - Add username sanitizer and collision handling.
 - Add directory preparer:
   - creates runtime dirs
-  - chowns to agent user
+  - chowns to group user
   - sets group to supervisor group
   - sets mode `0770` or stricter
 - Start agent-runner via:
   - `setpriv`, `gosu`, or `su-exec`
   - `--no-new-privs`
 - Remove world-writable runtime paths.
-- Ensure isolated task uses same user as live agent.
+- Ensure isolated task uses same user as the live group.
 - Add optional per-agent limits config, even if enforcement is initially partial.
 - Ensure secrets are not in shared files or global env.
+- Reject unsafe group-specific additional mounts rather than promoting them to agent-wide mounts.
+- Audit legacy provider env injection and replace it with credential proxy/scoped token for this runtime.
 
 ### Tests
 
-- agent user can read/write own runtime DB.
-- agent user cannot read another agent runtime DB.
-- agent user cannot write tenant shared skill path.
+- group user can read/write own runtime DB.
+- group user cannot read another group runtime DB.
+- group user cannot write tenant shared skill path.
 - supervisor can stop and inspect all runs.
 - isolated task uses same UID as live agent.
 - no runtime directory is `0777` or file `0666`.
+- another group user cannot read a group-specific additional mount.
+- provider credentials are absent from runtime DB rows, logs, and group-readable files.
 
 ### Manual Verification
 
 Inside runtime container:
 
 ```bash
-id nc_acme_finance
-sudo -u nc_acme_finance test -r /runtime/tenants/acme/agents/finance/live/state.db
-sudo -u nc_acme_finance test ! -r /runtime/tenants/acme/agents/ops/live/state.db
+id ncg_feishu_main
+sudo -u ncg_feishu_main test -r /runtime/groups/feishu-main/live/state.db
+sudo -u ncg_feishu_main test ! -r /runtime/groups/ops-group/live/state.db
 ```
 
 ### Do Not Change
@@ -376,14 +397,20 @@ Design doc: [08-tool-ipc-migration.md](./08-tool-ipc-migration.md)
 - Migrate tools in priority order:
   - `send_message`
   - task scheduling tools
+  - `new_session`
+  - `register_group`, `refresh_groups`
   - Feishu read-only
   - Feishu write
   - downloads/uploads
   - approvals
+  - Feishu P2P/user, task, tasklist, bitable, collaborator, card, and rich-text tools
 - Add timeouts for every tool request.
 - Add sanitized audit fields.
 - Keep legacy file watcher until tenant skills are migrated.
 - Add config flag to disable legacy file IPC per agent.
+- Enforce authorization from source runtime identity, not request payload.
+- Use runtime file IDs or controlled runtime paths for downloads/uploads; do not return host paths.
+- Complete rejected requests with explicit tool errors.
 
 ### Tests
 
@@ -393,6 +420,10 @@ Design doc: [08-tool-ipc-migration.md](./08-tool-ipc-migration.md)
 - two isolated tasks cannot consume each other's results.
 - legacy file request still works.
 - migrated agent can disable file IPC.
+- main/self authorization denial returns a tool error.
+- approval allowlist denial returns a tool error.
+- downloads/uploads keep host paths and secrets out of tool results.
+- P2P auto-registration preserves source group metadata.
 
 ### Manual Verification
 
@@ -402,13 +433,67 @@ Run a migrated `send_message` and a Feishu read-only tool. Confirm:
 - no secret is stored in request/result
 - outbound message is delivered
 
+## Version 1.9: Skill Runtime Loading
+
+Design doc: [09-skill-runtime-loading.md](./09-skill-runtime-loading.md)
+
+### Code Tasks
+
+- Add resolved skill manifest type.
+- Extend tenant config loader to resolve:
+  - `builtin:<skill>`
+  - `tenant:<skill>`
+  - `agent:<skill>`
+- Generate or mount `skills.manifest.json` for each agent service.
+- Add runtime driver support for read-only skill mounts.
+- Add supervisor manifest revision check.
+- Add group generated skill directory:
+  - `/runtime/groups/<group>/skills/generated`
+- Add provider skill loader adapter:
+  - Claude adapter
+  - OpenCode adapter
+  - mock adapter for tests
+- Add reload behavior:
+  - initial implementation can restart agent service on manifest change
+- Migrate or intentionally leave behind legacy per-group `.claude/skills` edits.
+- Stop mounting writable `agent-runner-src` in the final runtime; if kept temporarily, guard it with a compatibility flag and per-group permissions.
+- Remap reporter/local API skill edits to group-generated skills.
+- Keep group memory and conversation archives group-local.
+
+### Tests
+
+- missing skill reference blocks deployment or emits configured diagnostic.
+- group user can read tenant skill.
+- group user cannot write tenant skill.
+- group user can write generated skill under its runtime dir.
+- generated skill is not visible to other groups by default.
+- provider adapters receive the same normalized manifest.
+- revision mismatch is detected.
+- platform runner source is read-only in the final runtime.
+- reporter skill edits cannot modify tenant-managed skills.
+
+### Manual Verification
+
+Inside an agent container:
+
+```bash
+sudo -u ncg_feishu_main test -r /workspace/skills/tenant/acme/acme-approval/SKILL.md
+sudo -u ncg_feishu_main test ! -w /workspace/skills/tenant/acme/acme-approval/SKILL.md
+sudo -u ncg_feishu_main mkdir -p /runtime/groups/feishu-main/skills/generated/demo
+```
+
+### Do Not Change
+
+- Do not let runtime write into tenant repositories.
+- Do not hard-code provider-specific skill paths in scheduler/router.
+
 ## Version 2.0: Final Architecture
 
 Design doc: [20-final-architecture.md](./20-final-architecture.md)
 
 ### Code Tasks
 
-- Set default runtime driver to `single-container-users`.
+- Set default runtime driver to `agent-container-users`.
 - Keep `docker-per-group` fallback.
 - Update setup and deployment docs.
 - Add migration command for tenants and runtime data.
@@ -416,12 +501,16 @@ Design doc: [20-final-architecture.md](./20-final-architecture.md)
   - runtime container status
   - supervisor status
   - active runs
-  - per-agent users
+  - per-group users
   - DB queue depth
+  - central host DB cursor state
+  - legacy IPC/session directories still present
 - Add cleanup commands:
   - stale runs
   - old isolated task dirs
   - old logs
+  - legacy `data/ipc` directories
+  - legacy per-group `agent-runner-src`
 - Disable legacy file IPC for migrated tenants by default.
 
 ### Tests
@@ -432,14 +521,18 @@ Design doc: [20-final-architecture.md](./20-final-architecture.md)
 - runtime restart recovery
 - provider switch safety
 - rollback to `docker-per-group`
+- trigger/sender allowlist behavior
+- card action enqueue behavior
+- P2P send-to-user auto-registration
+- reporter skill/memory edit behavior
+- remote-control remains host-side and main-group-only
 
 ### Manual Verification
 
 Deploy fresh environment with default settings. Confirm:
 
-- only one runtime Docker container is started
-- agents run as different Linux users
+- one Docker service/container is started per agent service
+- groups inside an agent container run as different Linux users
 - normal chat works
 - isolated task works
 - old runtime can be selected via env var for rollback
-

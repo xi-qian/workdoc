@@ -1,44 +1,51 @@
-# Version 1.5: Single Docker Runtime Supervisor
+# Version 1.5: Agent Service Container Supervisor
 
 ## Goal
 
-Introduce one long-lived Docker runtime container that hosts a supervisor process. The host asks the supervisor to start, stop, inspect, and stream agent runs.
+Introduce one long-lived Docker container per agent service. Each agent container hosts a supervisor process. The host asks the relevant agent supervisor to start, stop, inspect, and stream group runs.
+
+This replaces "one Docker container per group" with "one Docker container per agent service, many group runs inside it".
 
 ## Non-goals
 
-- Do not enforce per-agent Linux users yet.
+- Do not enforce per-group Linux users yet.
 - Do not make this runtime the default yet.
 - Do not remove the per-group Docker runtime.
+- Do not collapse multiple agent services into one Docker container.
 
 ## Architecture
 
 ```text
 Host NanoClaw
   RuntimeClient
-    -> Docker container: nanoclaw-runtime
+    -> Docker service/container: nanoclaw-agent-finance
          Supervisor
-           -> agent-runner live process
-           -> isolated task process
+           -> group live process: feishu-main
+           -> group isolated task process: feishu-main/task-123
+           -> group live process: another-group
+    -> Docker service/container: nanoclaw-agent-ops
+         Supervisor
+           -> group runs for the ops agent service
 ```
 
-The host starts the runtime container once:
+The host starts one runtime container for each configured agent service:
 
 ```bash
 docker run -d \
-  --name nanoclaw-runtime \
-  -v <data>/runtime:/runtime \
+  --name nanoclaw-agent-finance \
+  -v <data>/runtime/agents/finance:/runtime \
   -v <tenant-repo>:/tenants:ro \
-  nanoclaw-runtime:latest
+  nanoclaw-agent-runtime:latest
 ```
 
-Then all agent lifecycle operations go through the supervisor.
+Tenant remains a configuration and skill-management layer. It can own multiple agent services, but runtime Docker ownership is per agent service.
 
 ## Supervisor API
 
 Use Unix socket if possible:
 
 ```text
-/runtime/supervisor.sock
+/runtime/supervisor/supervisor.sock
 ```
 
 JSON-RPC messages:
@@ -50,8 +57,9 @@ JSON-RPC messages:
   "params": {
     "tenantId": "acme",
     "agentId": "finance",
+    "groupId": "feishu-main",
     "mode": "live",
-    "runtimeDir": "/runtime/tenants/acme/agents/finance/live",
+    "runtimeDir": "/runtime/groups/feishu-main/live",
     "cwd": "/workspace/tenants/acme/agents/finance"
   }
 }
@@ -77,8 +85,9 @@ Supervisor keeps an in-memory registry:
 ```ts
 interface RunRecord {
   runId: string;
-  tenantId: string;
+  tenantId?: string;
   agentId: string;
+  groupId: string;
   mode: "live" | "isolated-task";
   runtimeDir: string;
   cwd: string;
@@ -103,15 +112,19 @@ This lets the supervisor recover enough metadata after restart to mark stale run
 Add:
 
 ```text
-src/runtime/single-container-users.ts
+src/runtime/agent-container.ts
 ```
 
-In 1.5 it may be named `single-container` because user isolation is not active yet.
+In 1.6 this becomes or is extended by:
+
+```text
+src/runtime/agent-container-users.ts
+```
 
 Responsibilities:
 
-- ensure the runtime Docker container is running
-- connect to supervisor socket
+- ensure the Docker service/container for the target agent is running
+- connect to that agent container's supervisor socket
 - map `RuntimeDriver` calls to supervisor methods
 - translate supervisor events to monitor events
 - implement health checks through `runs.status`
@@ -124,40 +137,43 @@ Supervisor starts agent-runner:
 node /app/agent-runner/dist/index.js \
   --tenant acme \
   --agent finance \
+  --group feishu-main \
   --mode live \
-  --runtime-dir /runtime/tenants/acme/agents/finance/live \
+  --runtime-dir /runtime/groups/feishu-main/live \
   --cwd /workspace/tenants/acme/agents/finance
 ```
 
-In 1.6 this command is wrapped with `setpriv`.
+In 1.6 this command is wrapped with `setpriv` for the group user.
 
 ## Initial Input
 
-Initial prompt should be written by the host into `inbound.db` before `runs.start`, or passed in `runs.start` and written by supervisor. Prefer host writes DB directly to keep supervisor small.
+Initial prompt should be written by the host into the group's `inbound.db` before `runs.start`, or passed in `runs.start` and written by supervisor. Prefer host writes DB directly to keep supervisor small.
 
 ## Logs
 
 Per run:
 
 ```text
-/runtime/logs/<tenant>/<agent>/<runId>.stdout.log
-/runtime/logs/<tenant>/<agent>/<runId>.stderr.log
+/runtime/logs/<group>/<runId>.stdout.log
+/runtime/logs/<group>/<runId>.stderr.log
 ```
 
 Supervisor streams summary events, not raw logs, unless explicitly requested.
 
 ## Tests
 
-- runtime driver starts the runtime container if absent.
-- supervisor starts a live run and returns status.
+- runtime driver starts the agent service container if absent.
+- supervisor starts a group live run and returns status.
 - supervisor stops a run.
 - isolated task run exits and status becomes exited.
 - stale runs are marked exited after supervisor restart.
 - host no longer uses `docker inspect` for per-run health in this mode.
+- two agent services use two Docker containers/services.
 
 ## Acceptance Criteria
 
-- One Docker container can service multiple agent runs.
+- One Docker container can service multiple group runs for one agent service.
+- Multiple agent services run as multiple Docker services/containers.
 - Per-group `docker run` is not used in this runtime mode.
 - Existing scheduler and queue call the same `RuntimeDriver` interface.
 - The old `docker-per-group` runtime remains available.

@@ -7,7 +7,7 @@ Separate platform code from tenant-specific business configuration and skills wi
 ## Non-goals
 
 - Do not change `docker run` behavior.
-- Do not change agent process lifecycle.
+- Do not change agent service or group process lifecycle.
 - Do not migrate message IPC.
 - Do not introduce Linux users.
 - Do not remove existing `groups/` support yet.
@@ -23,11 +23,12 @@ The current extended NanoClaw deployment mixes these concerns:
 - deployment files
 - secrets and service-specific configuration
 
-That makes user isolation hard to reason about. Before creating per-agent users, we need a stable answer to:
+That makes deployment and later group isolation hard to reason about. Before creating per-group users inside agent containers, we need a stable answer to:
 
 - Which files are platform-owned?
-- Which files are tenant-owned?
-- Which files are agent-writable?
+- Which files are tenant-managed?
+- Which files belong to an agent service?
+- Which files are group-writable at runtime?
 - Which skills are shared, tenant-specific, or agent-specific?
 - Which secrets are references versus materialized values?
 
@@ -226,7 +227,7 @@ It should:
 - Loader accepts valid tenant repo.
 - Loader rejects duplicate IDs.
 - Loader rejects secret-looking values in config.
-- Legacy groups still load.
+- Legacy groups still load and remain groups, not agents.
 - Agent skill resolution is deterministic.
 - Missing skill references produce actionable diagnostics.
 
@@ -236,4 +237,3 @@ It should:
 - No runtime behavior changes are required to pass existing tests.
 - New tenant config files are sufficient to describe provider, model, instructions, and skills.
 - Platform repository no longer needs company-specific skill content for new tenants.
-

@@ -78,11 +78,11 @@ OpenCodeProvider
 
 Initial behavior:
 
-- one OpenCode server per agent run
+- one OpenCode server per group run initially
 - no cross-agent shared server
 - no cross-user shared OpenCode config
 
-This costs more than a shared OpenCode server, but avoids session leakage.
+This costs more than a shared OpenCode server, but avoids group session leakage.
 
 ## Continuation
 
@@ -174,4 +174,3 @@ For first version, it is acceptable to queue follow-ups for the next loop, provi
 - isolated task can run through OpenCode.
 - Claude remains available as fallback.
 - Known behavior differences are documented in provider README or comments.
-

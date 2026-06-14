@@ -2,7 +2,10 @@
 
 ## Goal
 
-Make `single-container-users` the default runtime and treat the old per-group Docker model as fallback.
+Make `agent-container-users` the default runtime and treat the old per-group Docker model as fallback.
+
+For the expanded final topology, message flow, tenant deployment flow, and skill
+loading flow, see [Target Architecture Details](./TARGET_ARCHITECTURE_DETAILS.md).
 
 ## Final Runtime
 
@@ -14,15 +17,21 @@ Host NanoClaw
   tenant config loader
   runtime client
   tool workers
+  credential proxy
+  reporter/status APIs
+  setup/service control
 
-Runtime Docker Container
+Docker service/container per agent service
   supervisor
-  agent users
-  agent-runner processes
+  group users
+  group agent-runner processes
+  read-only mounted builtin/tenant/agent skills
   provider implementations
   DB-backed IPC files
   logs
 ```
+
+Tenant is a management layer for deployment configuration and skills. It can group multiple agent services, but it is not the runtime isolation unit.
 
 ## Runtime Configuration
 
@@ -31,16 +40,16 @@ Global:
 ```json
 {
   "runtime": {
-    "driver": "single-container-users",
+    "driver": "agent-container-users",
     "idleTimeoutSeconds": 180,
-    "maxActiveRuns": 20,
+    "maxActiveRunsPerAgent": 20,
     "defaultMemoryMb": 768,
     "defaultPids": 256
   }
 }
 ```
 
-Agent:
+Agent service:
 
 ```json
 {
@@ -52,54 +61,78 @@ Agent:
   "limits": {
     "memoryMb": 1024,
     "pids": 256,
-    "concurrentTasks": 1
+    "concurrentTasksPerGroup": 1
   }
 }
 ```
 
 ## Runtime Directory
 
+Inside the `finance` agent service container:
+
 ```text
 /runtime/
   supervisor/
     supervisor.sock
     runs.json
-  tenants/
-    acme/
-      agents/
-        finance/
-          live/
-            inbound.db
-            outbound.db
-            state.db
-            tools.db
-          runs/
-            task-123/
-              inbound.db
-              outbound.db
-              state.db
-              tools.db
+  groups/
+    feishu-main/
+      live/
+        inbound.db
+        outbound.db
+        state.db
+        tools.db
+      runs/
+        task-123/
+          inbound.db
+          outbound.db
+          state.db
+          tools.db
+      skills/
+        generated/
   logs/
+    feishu-main/
+```
+
+On the host, runtime data may be stored under:
+
+```text
+data/runtime/agents/finance/groups/feishu-main/...
 ```
 
 ## Security Model
 
 Provided:
 
-- Docker isolates runtime from host.
-- Linux users isolate tenant/agent runtime directories.
+- Docker isolates each agent service runtime from the host.
+- Linux users isolate group runtime directories inside each agent container.
 - DB IPC avoids world-writable file queues.
+- tenant-managed skills are mounted read-only into agent service containers.
 - host/supervisor holds secrets.
-- agent users run without root and with `no_new_privs`.
+- group users run without root and with `no_new_privs`.
 
 Not provided:
 
-- per-agent kernel namespace
-- per-agent network namespace by default
+- per-group kernel namespace
+- per-group network namespace by default
 - same strength as one Docker container per group
 - protection against malicious kernel/container escape
 
 This must be documented in user-facing deployment docs.
+
+## Host Control-plane Responsibilities
+
+These remain outside group users and outside provider processes:
+
+- channel connection and credential refresh
+- sender allowlist, trigger policy, and main-group authorization
+- central host DB cursors and task state
+- tool workers that require channel or Feishu credentials
+- credential proxy or scoped token minting
+- reporter/local API server
+- setup/status/verify/service commands
+- `/remote-control` host process
+- orphan cleanup and rollback driver selection
 
 ## Isolated Task Model
 
@@ -109,10 +142,10 @@ Isolated task means:
 - no live continuation
 - own run DBs
 - own lifecycle
-- same agent Linux user
-- same permission boundary as parent agent
+- same group Linux user
+- same permission boundary as parent group
 
-It does not mean stronger tenant isolation.
+It does not mean stronger tenant, agent, or group isolation.
 
 ## Provider Model
 
@@ -124,7 +157,7 @@ opencode
 mock
 ```
 
-Provider state is per provider:
+Provider state is per provider and per group:
 
 ```text
 continuation:claude
@@ -145,30 +178,59 @@ warm start: target <2s
 idle reap timeout: 2-5 minutes
 ```
 
-Capacity should be planned by active groups, not registered groups.
+Capacity should be planned by active groups per agent container, and by number of agent containers per host.
 
 ## Migration Checklist
 
-- Tenant repo loaded and validated.
+- Tenant repo loaded and validated for deployment/skill configuration.
 - Legacy groups migrated or explicitly kept.
-- RuntimeDriver default changed to `single-container-users`.
-- Runtime container image includes supervisor, agent-runner, providers, `setpriv` or equivalent.
-- DB IPC enabled for normal messages.
+- Legacy registered group fields are preserved: JID, channel, trigger, `requiresTrigger`, `isMain`, timeout, additional mounts, and P2P source metadata.
+- Central DB cursor semantics are preserved or explicitly migrated.
+- RuntimeDriver default changed to `agent-container-users`.
+- Agent runtime image includes supervisor, agent-runner, providers, `setpriv` or equivalent.
+- One Docker service/container is created per agent service.
+- DB IPC enabled for normal group messages.
 - Tool DB/RPC enabled for core tools.
-- File IPC compatibility disabled for migrated tenants.
-- Cross-agent permission tests pass.
+- Tenant and agent skills loaded through read-only skill manifest.
+- Group-generated skills and group memory replace writable runner-source customization.
+- Additional mounts are classified as agent-wide or group-specific and validated against the external allowlist.
+- Credential delivery no longer exposes shared secrets through group-readable env/files/logs.
+- File IPC compatibility disabled for migrated groups.
+- Cross-group permission tests pass inside an agent container.
 - OpenCode provider optional and tested.
 - Claude provider fallback tested.
 - Deployment docs updated.
 
+## Data Migration and Cleanup
+
+The migration command should inventory, copy, or preserve:
+
+- `store/messages.db`
+- `groups/<group>/**`
+- `data/ipc/<group>/**`
+- `data/sessions/<group>/.claude`
+- `data/sessions/<group>/agent-runner-src`
+- `data/sessions/<group>/isolated-ipc-*`
+- `approval-allowlist.json`
+- `~/.config/nanoclaw/mount-allowlist.json`
+- `~/.config/nanoclaw/sender-allowlist.json`
+
+Cleanup of legacy IPC/session data must be opt-in. Rollback to
+`docker-per-group` may require those files.
+
 ## Final Acceptance Criteria
 
-- One runtime Docker container serves multiple agents.
-- Each tenant/agent runs as a distinct Linux user.
-- A user cannot read another agent's runtime DBs or session files.
+- Each agent service runs as a distinct Docker service/container.
+- One agent container serves multiple groups.
+- Each group inside an agent container runs as a distinct Linux user.
+- A group user cannot read another group's runtime DBs or session files.
 - live chat uses warm poll loop.
 - isolated tasks use fresh run directories and exit after completion.
-- host can stop, inspect, and restart runs through supervisor.
+- host can stop, inspect, and restart group runs through the relevant agent supervisor.
 - normal messages and core tools work without file IPC.
+- tenant skills can be used by group runs without group write access to tenant repos.
+- trigger/sender allowlist, card action, P2P, and main/self authorization behavior matches the old runtime.
+- reporter skill/memory edits target group-generated or group-local paths.
+- file downloads/uploads work without exposing host paths.
+- remote control remains host-side and main-group-only.
 - old Docker per-group runtime remains selectable for rollback.
-
