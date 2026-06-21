@@ -2,8 +2,6 @@
 
 本目录记录 NanoClaw 2.0 的运行时架构：一个 host-direct、多租户、基于 Linux user 隔离的运行时，用来替代此前每个 agent 服务一个 Docker 的模型。
 
-> **先读 [OVERVIEW.md](./OVERVIEW.md)** —— 15 分钟可读完的设计概览，面向想理解 2.0 设计的工程师和运维。读完后再按需查阅下面其他文档。
-
 ## 当前方向
 
 设计已在 [`docs/superpowers/specs/2026-06-16-multi-tenant-host-direct-isolation-design.md`](../superpowers/specs/2026-06-16-multi-tenant-host-direct-isolation-design.md) 中定稿。本目录把该设计同步为项目权威文档（决策记录、目标架构、跨领域契约）。如果两者不一致，以 spec 为事实源，并修正本目录文档。
